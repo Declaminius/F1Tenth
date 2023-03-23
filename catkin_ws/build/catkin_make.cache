@@ -1,2 +1,2 @@
 f1tenth_simulator:safety_node1
--DCATKIN_DEVEL_PREFIX=/home/ubuntu/catkin_ws/devel -DCMAKE_INSTALL_PREFIX=/home/ubuntu/catkin_ws/install -G Unix Makefiles
+-DCATKIN_DEVEL_PREFIX=/home/ubuntu/F1Tenth/catkin_ws/devel -DCMAKE_INSTALL_PREFIX=/home/ubuntu/F1Tenth/catkin_ws/install -G Unix Makefiles

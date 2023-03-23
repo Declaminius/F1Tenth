@@ -1,6 +1,6 @@
 file(REMOVE_RECURSE
-  "/home/ubuntu/catkin_ws/devel/lib/libf1tenth_simulator.pdb"
-  "/home/ubuntu/catkin_ws/devel/lib/libf1tenth_simulator.so"
+  "/home/ubuntu/F1Tenth/catkin_ws/devel/lib/libf1tenth_simulator.pdb"
+  "/home/ubuntu/F1Tenth/catkin_ws/devel/lib/libf1tenth_simulator.so"
   "CMakeFiles/f1tenth_simulator.dir/src/distance_transform.cpp.o"
   "CMakeFiles/f1tenth_simulator.dir/src/ks_kinematics.cpp.o"
   "CMakeFiles/f1tenth_simulator.dir/src/precompute.cpp.o"

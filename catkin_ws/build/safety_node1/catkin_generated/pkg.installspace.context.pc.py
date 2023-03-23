@@ -4,5 +4,5 @@ PROJECT_PKG_CONFIG_INCLUDE_DIRS = "".split(';') if "" != "" else []
 PROJECT_CATKIN_DEPENDS = "".replace(';', ' ')
 PKG_CONFIG_LIBRARIES_WITH_PREFIX = "".split(';') if "" != "" else []
 PROJECT_NAME = "safety_node1"
-PROJECT_SPACE_DIR = "/home/ubuntu/catkin_ws/install"
+PROJECT_SPACE_DIR = "/home/ubuntu/F1Tenth/catkin_ws/install"
 PROJECT_VERSION = "0.0.0"

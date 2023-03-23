@@ -6,7 +6,7 @@
 
 #IncludeRegexTransform: 
 
-/home/ubuntu/catkin_ws/src/f1tenth_simulator/node/random_walk.cpp
+/home/ubuntu/F1Tenth/catkin_ws/src/f1tenth_simulator/node/random_walk.cpp
 ros/ros.h
 -
 ackermann_msgs/AckermannDriveStamped.h

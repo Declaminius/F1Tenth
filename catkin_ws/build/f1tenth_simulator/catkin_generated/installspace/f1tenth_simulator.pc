@@ -1,4 +1,4 @@
-prefix=/home/ubuntu/catkin_ws/install
+prefix=/home/ubuntu/F1Tenth/catkin_ws/install
 
 Name: f1tenth_simulator
 Description: Description of f1tenth_simulator

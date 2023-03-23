@@ -1,4 +1,4 @@
-prefix=/home/ubuntu/catkin_ws/devel
+prefix=/home/ubuntu/F1Tenth/catkin_ws/devel
 
 Name: safety_node1
 Description: Description of safety_node1

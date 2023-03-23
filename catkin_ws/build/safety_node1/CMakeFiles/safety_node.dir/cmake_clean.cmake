@@ -1,6 +1,6 @@
 file(REMOVE_RECURSE
-  "/home/ubuntu/catkin_ws/devel/lib/safety_node1/safety_node"
-  "/home/ubuntu/catkin_ws/devel/lib/safety_node1/safety_node.pdb"
+  "/home/ubuntu/F1Tenth/catkin_ws/devel/lib/safety_node1/safety_node"
+  "/home/ubuntu/F1Tenth/catkin_ws/devel/lib/safety_node1/safety_node.pdb"
   "CMakeFiles/safety_node.dir/src/safety_node.cpp.o"
 )
 

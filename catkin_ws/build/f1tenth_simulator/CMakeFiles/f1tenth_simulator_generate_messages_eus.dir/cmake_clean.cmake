@@ -1,5 +1,5 @@
 file(REMOVE_RECURSE
-  "/home/ubuntu/catkin_ws/devel/share/roseus/ros/f1tenth_simulator/manifest.l"
+  "/home/ubuntu/F1Tenth/catkin_ws/devel/share/roseus/ros/f1tenth_simulator/manifest.l"
   "CMakeFiles/f1tenth_simulator_generate_messages_eus"
 )
 

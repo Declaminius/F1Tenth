@@ -6,11 +6,11 @@
 
 #IncludeRegexTransform: 
 
-/home/ubuntu/catkin_ws/src/f1tenth_simulator/include/f1tenth_simulator/car_state.hpp
+/home/ubuntu/F1Tenth/catkin_ws/src/f1tenth_simulator/include/f1tenth_simulator/car_state.hpp
 
-/home/ubuntu/catkin_ws/src/f1tenth_simulator/include/f1tenth_simulator/precompute.hpp
+/home/ubuntu/F1Tenth/catkin_ws/src/f1tenth_simulator/include/f1tenth_simulator/precompute.hpp
 
-/home/ubuntu/catkin_ws/src/f1tenth_simulator/node/behavior_controller.cpp
+/home/ubuntu/F1Tenth/catkin_ws/src/f1tenth_simulator/node/behavior_controller.cpp
 ros/ros.h
 -
 ros/package.h
@@ -32,9 +32,9 @@ std_msgs/String.h
 fstream
 -
 f1tenth_simulator/car_state.hpp
-/home/ubuntu/catkin_ws/src/f1tenth_simulator/node/f1tenth_simulator/car_state.hpp
+/home/ubuntu/F1Tenth/catkin_ws/src/f1tenth_simulator/node/f1tenth_simulator/car_state.hpp
 f1tenth_simulator/precompute.hpp
-/home/ubuntu/catkin_ws/src/f1tenth_simulator/node/f1tenth_simulator/precompute.hpp
+/home/ubuntu/F1Tenth/catkin_ws/src/f1tenth_simulator/node/f1tenth_simulator/precompute.hpp
 
 /opt/ros/noetic/include/geometry_msgs/Point.h
 string

@@ -20,10 +20,10 @@ private:
 public:
     Safety() {
         n = ros::NodeHandle();
-        scan = n.subscribe("/scan", 1000, scan_callback);
-        odom = n.subscribe("/odom", 1000, odom_callback);
-        brake_pub = n.advertise<ackermann_msgs/AckermannDriveStamped>("/brake", 1000);
-        brake_bool_pub = n.advertise<std_msgs/Bool>("/brake_bool", 1000);
+        scan = n.subscribe("/scan", 1000, &Safety::scan_callback, this);
+        odom = n.subscribe("/odom", 1000, &Safety::odom_callback, this);
+        brake_pub = n.advertise<ackermann_msgs::AckermannDriveStamped>("/brake", 1000);
+        brake_bool_pub = n.advertise<std_msgs::Bool>("/brake_bool", 1000);
         speed = 0.0;
         /*
         One publisher should publish to the /brake topic with an
@@ -43,24 +43,26 @@ public:
         */
         
     }
-    static void odom_callback(const nav_msgs::Odometry::ConstPtr &odom_msg) {
+    void odom_callback(const nav_msgs::Odometry &odom_msg) {
         speed = odom_msg.twist.twist.linear.x;
     }
 
-    static void scan_callback(const sensor_msgs::LaserScan::ConstPtr &scan_msg) {
+    void scan_callback(const sensor_msgs::LaserScan &scan_msg) {
     	ackermann_msgs::AckermannDriveStamped brake_msg;
     	std_msgs::Bool brake_bool_msg;
+    	double ttc;
+    	double threshold = 0.5;
     	
     	for (int i = 0; i <= 1080; i++) {
     	    auto current_angle = scan_msg.angle_min + i*scan_msg.angle_increment;
-    	    auto projected_speed = speed*math.cos(current_angle);
+    	    auto projected_speed = speed*cos(current_angle);
     	    if (projected_speed > 0) {
 		auto ttc = scan_msg.ranges[i]/projected_speed;    	    	
     	    }
-    	    else { projected_speed = math.INFINITY }
+    	    else { projected_speed = INFINITY;}
     	    if (ttc < threshold) {
-    	    	brake_msg.speed = 0;
-    	    	brake_bool_msg = True;
+    	    	brake_msg.drive.speed = 0;
+    	    	brake_bool_msg.data = 1;
     	    	brake_pub.publish(brake_msg);
     	    	brake_bool_pub.publish(brake_bool_msg);    	
 	    }
@@ -70,6 +72,7 @@ public:
 int main(int argc, char ** argv) {
     ros::init(argc, argv, "safety_node");
     Safety sn;
+    sn = Safety();
     ros::spin();
     return 0;
 }

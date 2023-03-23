@@ -1,8 +1,8 @@
-# Install script for directory: /home/ubuntu/catkin_ws/src/safety_node1
+# Install script for directory: /home/ubuntu/F1Tenth/catkin_ws/src/safety_node1
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
-  set(CMAKE_INSTALL_PREFIX "/home/ubuntu/catkin_ws/install")
+  set(CMAKE_INSTALL_PREFIX "/home/ubuntu/F1Tenth/catkin_ws/install")
 endif()
 string(REGEX REPLACE "/$" "" CMAKE_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}")
 
@@ -38,17 +38,17 @@ if(NOT DEFINED CMAKE_CROSSCOMPILING)
 endif()
 
 if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_COMPONENT)
-  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/lib/pkgconfig" TYPE FILE FILES "/home/ubuntu/catkin_ws/build/safety_node1/catkin_generated/installspace/safety_node1.pc")
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/lib/pkgconfig" TYPE FILE FILES "/home/ubuntu/F1Tenth/catkin_ws/build/safety_node1/catkin_generated/installspace/safety_node1.pc")
 endif()
 
 if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_COMPONENT)
   file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/share/safety_node1/cmake" TYPE FILE FILES
-    "/home/ubuntu/catkin_ws/build/safety_node1/catkin_generated/installspace/safety_node1Config.cmake"
-    "/home/ubuntu/catkin_ws/build/safety_node1/catkin_generated/installspace/safety_node1Config-version.cmake"
+    "/home/ubuntu/F1Tenth/catkin_ws/build/safety_node1/catkin_generated/installspace/safety_node1Config.cmake"
+    "/home/ubuntu/F1Tenth/catkin_ws/build/safety_node1/catkin_generated/installspace/safety_node1Config-version.cmake"
     )
 endif()
 
 if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_COMPONENT)
-  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/share/safety_node1" TYPE FILE FILES "/home/ubuntu/catkin_ws/src/safety_node1/package.xml")
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/share/safety_node1" TYPE FILE FILES "/home/ubuntu/F1Tenth/catkin_ws/src/safety_node1/package.xml")
 endif()
 

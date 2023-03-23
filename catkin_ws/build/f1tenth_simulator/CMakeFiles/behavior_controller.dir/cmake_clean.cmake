@@ -1,6 +1,6 @@
 file(REMOVE_RECURSE
-  "/home/ubuntu/catkin_ws/devel/lib/f1tenth_simulator/behavior_controller"
-  "/home/ubuntu/catkin_ws/devel/lib/f1tenth_simulator/behavior_controller.pdb"
+  "/home/ubuntu/F1Tenth/catkin_ws/devel/lib/f1tenth_simulator/behavior_controller"
+  "/home/ubuntu/F1Tenth/catkin_ws/devel/lib/f1tenth_simulator/behavior_controller.pdb"
   "CMakeFiles/behavior_controller.dir/node/behavior_controller.cpp.o"
 )
 

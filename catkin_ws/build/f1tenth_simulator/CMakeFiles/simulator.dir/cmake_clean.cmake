@@ -1,6 +1,6 @@
 file(REMOVE_RECURSE
-  "/home/ubuntu/catkin_ws/devel/lib/f1tenth_simulator/simulator"
-  "/home/ubuntu/catkin_ws/devel/lib/f1tenth_simulator/simulator.pdb"
+  "/home/ubuntu/F1Tenth/catkin_ws/devel/lib/f1tenth_simulator/simulator"
+  "/home/ubuntu/F1Tenth/catkin_ws/devel/lib/f1tenth_simulator/simulator.pdb"
   "CMakeFiles/simulator.dir/node/simulator.cpp.o"
 )
 

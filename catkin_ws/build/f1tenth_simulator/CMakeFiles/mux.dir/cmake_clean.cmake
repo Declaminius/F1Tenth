@@ -1,6 +1,6 @@
 file(REMOVE_RECURSE
-  "/home/ubuntu/catkin_ws/devel/lib/f1tenth_simulator/mux"
-  "/home/ubuntu/catkin_ws/devel/lib/f1tenth_simulator/mux.pdb"
+  "/home/ubuntu/F1Tenth/catkin_ws/devel/lib/f1tenth_simulator/mux"
+  "/home/ubuntu/F1Tenth/catkin_ws/devel/lib/f1tenth_simulator/mux.pdb"
   "CMakeFiles/mux.dir/node/mux.cpp.o"
 )
 

@@ -6,7 +6,7 @@
 
 #IncludeRegexTransform: 
 
-/home/ubuntu/catkin_ws/src/safety_node1/src/safety_node.cpp
+/home/ubuntu/F1Tenth/catkin_ws/src/safety_node1/src/safety_node.cpp
 ros/ros.h
 -
 nav_msgs/Odometry.h

@@ -4,5 +4,5 @@ PROJECT_PKG_CONFIG_INCLUDE_DIRS = "${prefix}/include".split(';') if "${prefix}/i
 PROJECT_CATKIN_DEPENDS = "message_runtime".replace(';', ' ')
 PKG_CONFIG_LIBRARIES_WITH_PREFIX = "-lf1tenth_simulator".split(';') if "-lf1tenth_simulator" != "" else []
 PROJECT_NAME = "f1tenth_simulator"
-PROJECT_SPACE_DIR = "/home/ubuntu/catkin_ws/install"
+PROJECT_SPACE_DIR = "/home/ubuntu/F1Tenth/catkin_ws/install"
 PROJECT_VERSION = "0.0.1"
