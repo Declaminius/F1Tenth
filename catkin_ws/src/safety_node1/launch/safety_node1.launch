@@ -1,0 +1,3 @@
+<launch>
+  <node name="safety" pkg="safety_node1" type="safety" />
+</launch>
