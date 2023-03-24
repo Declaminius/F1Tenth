@@ -1,1 +1,0 @@
-/usr/bin/c++    -rdynamic CMakeFiles/safety_node.dir/src/safety_node.cpp.o  -o /home/ubuntu/F1Tenth/catkin_ws/devel/lib/safety_node1/safety_node 
