@@ -141,7 +141,7 @@ add_executable(safety_node src/safety_node.cpp)
 ## The above recommended prefix causes long target names, the following renames the
 ## target back to the shorter version for ease of user use
 ## e.g. "rosrun someones_pkg node" instead of "rosrun someones_pkg someones_pkg_node"
-set_target_properties(safety_node PROPERTIES OUTPUT_NAME safety_node1)
+## set_target_properties(safety_node PROPERTIES OUTPUT_NAME safety_node)
 
 ## Add cmake target dependencies of the executable
 ## same as for the library above

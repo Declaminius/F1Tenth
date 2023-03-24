@@ -51,22 +51,30 @@ public:
     	ackermann_msgs::AckermannDriveStamped brake_msg;
     	std_msgs::Bool brake_bool_msg;
     	double ttc;
-    	double threshold = 0.5;
+    	double min_ttc;
+    	double threshold = 0.4;
     	
+    	min_ttc = 100;
     	for (int i = 0; i <= 1080; i++) {
     	    auto current_angle = scan_msg.angle_min + i*scan_msg.angle_increment;
     	    auto projected_speed = speed*cos(current_angle);
     	    if (projected_speed > 0) {
-		auto ttc = scan_msg.ranges[i]/projected_speed;    	    	
+    	    	ttc = scan_msg.ranges[i]/projected_speed;
+    	    	if (ttc < min_ttc) {
+    	            min_ttc = ttc;
+    	    	}    	    	
     	    }
-    	    else { projected_speed = INFINITY;}
-    	    if (ttc < threshold) {
-    	    	brake_msg.drive.speed = 0;
-    	    	brake_bool_msg.data = 1;
-    	    	brake_pub.publish(brake_msg);
-    	    	brake_bool_pub.publish(brake_bool_msg);    	
-	    }
         }
+        if (min_ttc < threshold && speed > 0) {
+    	    brake_msg.drive.speed = 0;
+    	    brake_bool_msg.data = true;
+    	    brake_pub.publish(brake_msg);
+    	    brake_bool_pub.publish(brake_bool_msg);    	
+	}
+	else {
+	   brake_bool_msg.data = false;
+	   brake_bool_pub.publish(brake_bool_msg);
+	}
    }
 };
 int main(int argc, char ** argv) {
