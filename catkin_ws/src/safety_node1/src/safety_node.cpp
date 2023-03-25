@@ -1,7 +1,9 @@
 #include <ackermann_msgs/AckermannDriveStamped.h>
+#include <dynamic_reconfigure/server.h>
 #include <math.h>
 #include <nav_msgs/Odometry.h>
 #include <ros/ros.h>
+#include <safety_node1/safety_nodeConfig.h>
 #include <sensor_msgs/LaserScan.h>
 #include <std_msgs/Bool.h>
 
@@ -16,16 +18,19 @@ private:
   ros::Subscriber odom;
   ros::Publisher brake_pub;
   ros::Publisher brake_bool_pub;
+  double threshold;
 
 public:
-  Safety() {
-    n = ros::NodeHandle();
+  Safety(ros::NodeHandle handle) {
+    n = handle;
     scan = n.subscribe("/scan", 1000, &Safety::scan_callback, this);
     odom = n.subscribe("/odom", 1000, &Safety::odom_callback, this);
     brake_pub =
         n.advertise<ackermann_msgs::AckermannDriveStamped>("/brake", 1000);
     brake_bool_pub = n.advertise<std_msgs::Bool>("/brake_bool", 1000);
     speed = 0.0;
+    threshold = 0.4;
+
     /*
     One publisher should publish to the /brake topic with an
     ackermann_msgs/AckermannDriveStamped brake message.
@@ -52,7 +57,6 @@ public:
     std_msgs::Bool brake_bool_msg;
     double ttc;
     double min_ttc;
-    double threshold = 0.4;
 
     min_ttc = 100;
     for (int i = 0; i <= 1080; i++) {
@@ -75,11 +79,23 @@ public:
       brake_bool_pub.publish(brake_bool_msg);
     }
   }
+
+  void dyn_callback(const safety_node1::safety_nodeConfig &config,
+                    uint32_t level) {
+    threshold = config.threshold;
+  }
 };
 int main(int argc, char **argv) {
   ros::init(argc, argv, "safety_node");
-  Safety sn;
-  sn = Safety();
+  ros::NodeHandle n = ros::NodeHandle();
+  Safety sn(n);
+
+  dynamic_reconfigure::Server<safety_node1::safety_nodeConfig> server;
+  dynamic_reconfigure::Server<safety_node1::safety_nodeConfig>::CallbackType f;
+
+  f = boost::bind(&Safety::dyn_callback, &sn, _1, _2);
+  server.setCallback(f);
+
   ros::spin();
   return 0;
 }

@@ -2,6 +2,7 @@
 <launch>
 
   <node name="safety_node" pkg="safety_node1" type="safety_node" output = "screen"/>
+
   <!-- Listen to messages from joysicks -->
   <node pkg="joy" name="joy_node" type="joy_node"/>
 
