@@ -1,0 +1,2 @@
+For running python safety_node first run 
+chmod +x ./src/safety_node2/src/safety_node.py
