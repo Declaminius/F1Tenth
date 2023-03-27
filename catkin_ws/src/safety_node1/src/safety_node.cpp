@@ -5,7 +5,9 @@
 #include <ros/ros.h>
 #include <safety_node1/safety_nodeConfig.h>
 #include <sensor_msgs/LaserScan.h>
-#include <std_msgs/Bool.h>
+#include <std_msgs/Bool.h>    
+#include <std_msgs/Float64.h>
+#include <std_msgs/Int8.h>
 
 // TODO: include ROS msg type headers and libraries
 
@@ -18,16 +20,22 @@ private:
   ros::Subscriber odom;
   ros::Publisher brake_pub;
   ros::Publisher brake_bool_pub;
+  ros::Publisher car_speed_pub;
+  ros::Publisher ttc_pub;
+  ros::Publisher emergency_brake_indicator_pub;
+  ros::Publisher mdtao_pub;
   double threshold;
-
 public:
   Safety(ros::NodeHandle handle) {
     n = handle;
     scan = n.subscribe("/scan", 1000, &Safety::scan_callback, this);
     odom = n.subscribe("/odom", 1000, &Safety::odom_callback, this);
-    brake_pub =
-        n.advertise<ackermann_msgs::AckermannDriveStamped>("/brake", 1000);
+    brake_pub = n.advertise<ackermann_msgs::AckermannDriveStamped>("/brake", 1000);
     brake_bool_pub = n.advertise<std_msgs::Bool>("/brake_bool", 1000);
+    car_speed_pub = n.advertise<std_msgs::Float64>("/car_speed_topic", 1000); //publisher for velocity
+    ttc_pub = n.advertise<std_msgs::Float64>("/ttc_topic", 1000);            //publisher for ttc
+    emergency_brake_indicator_pub = n.advertise<std_msgs::Int8>("/embi_topic", 1000);
+    mdtao_pub = n.advertise<std_msgs::Float64>("/mdtao_topic", 1000);
     speed = 0.0;
     threshold = 0.4;
 
@@ -50,32 +58,68 @@ public:
   }
   void odom_callback(const nav_msgs::Odometry &odom_msg) {
     speed = odom_msg.twist.twist.linear.x;
+    std_msgs::Float64 msg;             //can not publish directly that's why we have this code here
+    msg.data = speed;
+    car_speed_pub.publish(msg);
   }
 
   void scan_callback(const sensor_msgs::LaserScan &scan_msg) {
-    ackermann_msgs::AckermannDriveStamped brake_msg;
-    std_msgs::Bool brake_bool_msg;
-    double ttc;
-    double min_ttc;
+	ackermann_msgs::AckermannDriveStamped brake_msg;
+	std_msgs::Bool brake_bool_msg;
+	std_msgs::Int8 msg_embi;
+	double ttc;
+	double min_ttc;
+	double mdtao = 100000;   // minimum distance to any obstacle, set to a high number
 
-    min_ttc = 100;
-    for (int i = 0; i <= 1080; i++) {
-      auto current_angle = scan_msg.angle_min + i * scan_msg.angle_increment;
-      auto projected_speed = speed * cos(current_angle);
-      if (projected_speed > 0) {
-        ttc = scan_msg.ranges[i] / projected_speed;
-        if (ttc < min_ttc) {
-          min_ttc = ttc;
-        }
-      }
-    }
+	min_ttc = 5;
+	for (int i = 0; i <= 1080; i++) {
+		auto current_angle = scan_msg.angle_min + i * scan_msg.angle_increment;
+		if (current_angle > scan_msg.angle_max) {
+			break;
+		}
+		auto projected_speed = speed * cos(current_angle);
+
+
+		if (projected_speed > 0) {
+			ttc = scan_msg.ranges[i] / projected_speed;
+
+
+			if (ttc < min_ttc) {
+				min_ttc = ttc;
+			}
+		}
+
+		if (scan_msg.ranges[i] < mdtao){
+			mdtao = scan_msg.ranges[i];
+		}
+	}
+
+	std_msgs::Float64 msg_mdtao;      //same as before
+	msg_mdtao.data = mdtao;
+	mdtao_pub.publish(msg_mdtao);
+	std_msgs::Float64 msg_ttc;      //same as before
+	msg_ttc.data = min_ttc;
+	ttc_pub.publish(msg_ttc);
+    
+    
+    
+    
     if (min_ttc < threshold && speed > 0) {
       brake_msg.drive.speed = 0;
       brake_bool_msg.data = true;
       brake_pub.publish(brake_msg);
       brake_bool_pub.publish(brake_bool_msg);
+      
+      msg_embi.data = 1;
+      emergency_brake_indicator_pub.publish(msg_embi);
+      
+      
+      
+      
     } else {
       brake_bool_msg.data = false;
+      msg_embi.data = 0;
+      emergency_brake_indicator_pub.publish(msg_embi);
       brake_bool_pub.publish(brake_bool_msg);
     }
   }
