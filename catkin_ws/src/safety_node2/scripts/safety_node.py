@@ -6,6 +6,8 @@ from std_msgs.msg import Bool
 from ackermann_msgs.msg import AckermannDriveStamped
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry
+from dynamic_reconfigure.server import Server
+from safety_node2.cfg import safety_node2Config
 
 class Safety(object):
     """
@@ -55,12 +57,17 @@ class Safety(object):
             break_bool_msg = Bool()
             break_bool_msg.data = False
             self.break_bool_pub.publish(break_bool_msg)
-
+    
+    def dyn_callback(self, config, level):
+        self.threshold = config.threshold
+        return config
 
 
 def main():
-    rospy.init_node('safety_node')
+    rospy.init_node('safety_node2')
     sn = Safety()
+
+    srv = Server(safety_node2Config, sn.dyn_callback)
     rospy.spin()
 if __name__ == '__main__':
     main()
