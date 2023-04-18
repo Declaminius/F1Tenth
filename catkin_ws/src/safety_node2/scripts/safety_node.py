@@ -6,6 +6,7 @@ from std_msgs.msg import Bool
 from ackermann_msgs.msg import AckermannDriveStamped
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry
+from std_msgs.msg import Float32
 from dynamic_reconfigure.server import Server
 from safety_node2.cfg import safety_node2Config
 
@@ -32,6 +33,7 @@ class Safety(object):
         rospy.Subscriber("odom", Odometry, self.odom_callback)
         self.break_pub = rospy.Publisher("brake",AckermannDriveStamped,queue_size=1000)
         self.break_bool_pub = rospy.Publisher("brake_bool",Bool,queue_size=1000)
+        self.ttc_pub = rospy.Publisher("ttc", Float32, queue_size = 1000)
 
     def odom_callback(self, odom_msg):
         self.speed = odom_msg.twist.twist.linear.x
@@ -45,6 +47,7 @@ class Safety(object):
         ttc[mask] = np.array(scan_msg.ranges)[mask]/projected_speed[mask]
         
         min_ttc = np.min(ttc)
+        self.ttc_pub.publish(min_ttc)
         
         if min_ttc < self.threshold and self.speed > 0:
             break_msg = AckermannDriveStamped()
