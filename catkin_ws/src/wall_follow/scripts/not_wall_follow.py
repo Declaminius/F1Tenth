@@ -44,6 +44,11 @@ class WallFollow:
         self.kp = 14
         self.kd = 0.09
         self.ki = 0
+
+        self.fast_speed = 5
+        self.medium_speed = 3
+        self.slow_speed = 1
+
         self.actual_speed = 0
 
         self.lidar_sub = rospy.Subscriber("/scan", LaserScan, self.lidar_callback)
@@ -80,15 +85,15 @@ class WallFollow:
         angle = self.kp*error + self.ki*integral + self.kd*derivative
         
         if 0 <= abs(angle) < 10:
-            speed = 1.5
+            speed = self.fast_speed
         elif 10 <= abs(angle) < 20:
-            speed = 1
+            speed = self.medium_speed
         else:
-            speed = 0.5
+            speed = self.slow_speed
         
-        if self.getRange(scan_msg, np.pi / 2) < threshold*self.actual_speed:
-            speed = 0.5
-            angle *= 2
+        # if self.getRange(scan_msg, np.pi / 2) < threshold*self.actual_speed:
+        #     speed = self.slow_speed
+        #     angle *= 2
 
         prev_time = time
         prev_error = error
@@ -96,7 +101,7 @@ class WallFollow:
         drive_msg = AckermannDriveStamped()
         drive_msg.header.stamp = rospy.Time.now()
         drive_msg.header.frame_id = "laser"
-        drive_msg.drive.steering_angle = angle/180*np.pi
+        drive_msg.drive.steering_angle = angle*np.pi/180
         drive_msg.drive.speed = speed
         
         self.drive_pub.publish(drive_msg)
@@ -169,7 +174,9 @@ class WallFollow:
         self.kd = config.kd
         self.kp = config.kp
         self.ki = config.ki
-        self.desired_speed = config.desired_speed
+        self.fast_speed = config.fast_speed
+        self.medium_speed = config.medium_speed
+        self.slow_speed = config.slow_speed
         return config
 
 def main(args):
