@@ -13,7 +13,7 @@ from std_msgs.msg import Float32
 
 
 from dynamic_reconfigure.server import Server
-from wall_follow2.cfg import wall_follow2Config
+from wall_follow.cfg import wall_follow_dynamicConfig
 
 #PID CONTROL PARAMS
 
@@ -176,7 +176,7 @@ def main(args):
     rospy.init_node("wall_follow", anonymous=True)
     wf = WallFollow()
     rospy.sleep(0.1)
-    srv = Server(wall_follow2Config, wf.dyn_callback)
+    srv = Server(wall_follow_dynamicConfig, wf.dyn_callback)
     rospy.spin()
 
 if __name__=='__main__':

@@ -91,7 +91,7 @@ find_package(catkin REQUIRED COMPONENTS
 
 # # Generate dynamic reconfigure parameters in the 'cfg' folder
 generate_dynamic_reconfigure_options(
-  cfg/wall_follow2.cfg
+  cfg/wall_follow_dynamic.cfg
 )
 
 # ##################################

@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <launch>
 
-  <node name="wall_follow" pkg="wall_follow" type="wall_follow.py" output = "screen"/>
+  <node name="wall_follow" pkg="wall_follow" type="not_wall_follow.py" output = "screen"/>
   <!-- Listen to messages from joysicks -->
   <node pkg="joy" name="joy_node" type="joy_node"/>
 
