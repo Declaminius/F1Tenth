@@ -28,7 +28,8 @@ class Safety(object):
         NOTE that the x component of the linear velocity in odom is the speed
         """
         self.speed = 0
-        self.threshold = 0.4
+        self.threshold = 0.5
+        self.margin = 0.25
         rospy.Subscriber("scan", LaserScan, self.scan_callback)
         rospy.Subscriber("odom", Odometry, self.odom_callback)
         self.break_pub = rospy.Publisher("brake",AckermannDriveStamped,queue_size=1000)
@@ -44,7 +45,7 @@ class Safety(object):
         projected_speed = self.speed*np.cos(angles)
         mask = projected_speed > 0
         ttc = np.array([float("inf")]*n)
-        ttc[mask] = np.array(scan_msg.ranges)[mask]/projected_speed[mask]
+        ttc[mask] = (np.array(scan_msg.ranges) - self.margin)[mask]/projected_speed[mask]
         
         min_ttc = np.min(ttc)
         self.ttc_pub.publish(min_ttc)
