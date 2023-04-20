@@ -12,8 +12,8 @@ from nav_msgs.msg import Odometry
 from std_msgs.msg import Float32
 
 
-# from dynamic_reconfigure.server import Server
-# from wall_follow2.cfg import wall_follow2Config
+from dynamic_reconfigure.server import Server
+from wall_follow2.cfg import wall_follow2Config
 
 #PID CONTROL PARAMS
 
@@ -25,7 +25,6 @@ prev_error = 0.0
 prev_time = 0.0
 error = 0.0
 integral = 0.0
-time_steps = 0
 speed = 0
 
 #WALL FOLLOW PARAMS
@@ -71,13 +70,13 @@ class WallFollow:
         global integral
         global prev_error
         global prev_time
-        global time_steps
         global speed
-        threshold = 2
+        threshold = 1
         
-        integral += (error - integral)/(time_steps+1)
-        
+        if self.actual_speed != 0:
+            integral += error*(time - prev_time)
         derivative = (error - prev_error)/(time - prev_time)
+
         angle = self.kp*error + self.ki*integral + self.kd*derivative
         
         if 0 <= abs(angle) < 10:
@@ -89,10 +88,10 @@ class WallFollow:
         
         if self.getRange(scan_msg, np.pi / 2) < threshold*self.actual_speed:
             speed = 0.5
+            angle *= 2
 
         prev_time = time
         prev_error = error
-        time_steps += 1
 
         drive_msg = AckermannDriveStamped()
         drive_msg.header.stamp = rospy.Time.now()
@@ -122,8 +121,7 @@ class WallFollow:
             next_distance = D_t + L*np.sin(np.pi - alpha)
             
             error_average += next_distance - leftDist
-            # print(f"{next_distance=}")
-            # print(f"{theta=}")
+            
         error_average /= len(thetas)
         self.left_dist_pub.publish(error_average + leftDist)
         self.desired_dist_pub.publish(leftDist)       
@@ -168,9 +166,9 @@ class WallFollow:
         self.actual_speed_pub.publish(self.actual_speed)
     
     def dyn_callback(self,config,level):
-        kd = config.kd
-        kp = config.kp
-        ki = config.ki
+        self.kd = config.kd
+        self.kp = config.kp
+        self.ki = config.ki
         self.desired_speed = config.desired_speed
         return config
 
@@ -178,7 +176,7 @@ def main(args):
     rospy.init_node("wall_follow", anonymous=True)
     wf = WallFollow()
     rospy.sleep(0.1)
-    # srv = Server(wall_follow2Config, wf.dyn_callback)
+    srv = Server(wall_follow2Config, wf.dyn_callback)
     rospy.spin()
 
 if __name__=='__main__':
