@@ -9,7 +9,7 @@ import rospy
 from sensor_msgs.msg import Image, LaserScan
 from ackermann_msgs.msg import AckermannDriveStamped, AckermannDrive
 from nav_msgs.msg import Odometry
-from std_msgs.msg import Float32
+from std_msgs.msg import Float32, Bool
 
 
 class SlowCrash:
@@ -17,8 +17,9 @@ class SlowCrash:
     """
     def __init__(self):
         #Topics & Subs, Pubs
-        self.drive_pub = rospy.Publisher("/nav", AckermannDriveStamped, queue_size = 1000)
+        self.drive_pub = rospy.Publisher("/nav", AckermannDriveStamped, queue_size = 1)
         self.lidar_sub = rospy.Subscriber("/scan", LaserScan, self.lidar_callback)
+        self.led_pub = rospy.Publisher('/led/blue', Bool, queue_size=1)
 
     def lidar_callback(self, scan_msg):
 
@@ -26,16 +27,18 @@ class SlowCrash:
         drive_msg.header.stamp = rospy.Time.now()
         drive_msg.header.frame_id = "laser"
         drive_msg.drive.steering_angle = 0
-        drive_msg.drive.speed = 0.1
+        drive_msg.drive.speed = 0.2
+        self.drive_pub.publish(drive_msg)
 
-        while True:
-            self.drive_pub.publish(drive_msg)
-            rospy.sleep(0.1)
+        # set blue led
+        led_msg = Bool()
+        led_msg.data = True
+        self.led_pub.publish(led_msg)
 
 
 
 def main(args):
-    rospy.init_node("wall_follow", anonymous=True)
+    rospy.init_node("slow_crash", anonymous=True)
     slow_crash = SlowCrash()
     rospy.sleep(0.1)
     rospy.spin()

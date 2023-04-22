@@ -1,56 +1,19 @@
-<?xml version="1.0"?>
+<!-- -*- mode: XML -*- -->
 <launch>
+  <arg name="racecar_version" default="racecar-v2" />
+  <arg name="run_camera" default="false"/>
 
-  <remap from="/odom" to="/vesc/odom"/>
-  <remap from="/joy" to="/vesc/joy"/>
-  <remap from="/brake" to="/vesc/low_level/ackermann_cmd_mux/input/safety"/>
-  <remap from="/nav" to="/vesc/high_level/ackermann_cmd_mux/input/nav_0"/>
+  <remap from="brake" to="/vesc/low_level/ackermann_cmd_mux/input/safety" />
+  <remap from="nav" to="/vesc/high_level/ackermann_cmd_mux/input/nav_0" />
+  <remap from="odom" to="/vesc/vesc/odom"/>
 
-  <node name="slow_crash" pkg="wall_follow" type="slow_crash.py" output = "screen"/>
-  <node name="safety_node" pkg="safety_node2" type="safety_node.py" output = "screen"/>
-
-  <!-- Listen to messages from joysicks -->
-  <node pkg="joy" name="joy_node" type="joy_node"/>
-
-  <!-- Launch a map from the maps folder-->
-  <arg name="map" default="$(find f1tenth_simulator)/maps/blackbox1.yaml"/>
-  <node pkg="map_server" name="map_server" type="map_server" args="$(arg map)"/>
-
-  <!-- Launch the racecar model -->
-  <include file="$(find f1tenth_simulator)/launch/racecar_model.launch"/>
-
-  <!-- Begin the simulator with the parameters from params.yaml -->
-  <node pkg="f1tenth_simulator" name="f1tenth_simulator" type="simulator" output="screen">
-    <rosparam command="load" file="$(find f1tenth_simulator)/params.yaml"/>
-  </node>
-
-  <!-- Launch the mux node with the parameters from params.yaml -->
-  <node pkg="f1tenth_simulator" name="mux_controller" type="mux" output="screen">
-    <rosparam command="load" file="$(find f1tenth_simulator)/params.yaml"/>
-  </node>
-
-  <!-- Launch the behavior controller node with the parameters from params.yaml -->
-  <node pkg="f1tenth_simulator" name="behavior_controller" type="behavior_controller" output="screen">
-    <rosparam command="load" file="$(find f1tenth_simulator)/params.yaml"/>
-  </node>
-
-  <!-- Launch the Random Walker Node -->
-  <node pkg="f1tenth_simulator" name="random_walker" type="random_walk" output="screen">
-    <rosparam command="load" file="$(find f1tenth_simulator)/params.yaml"/>
-  </node>
-
-  <!-- Launch the Keyboard Node -->
-  <node pkg="f1tenth_simulator" name="keyboard" type="keyboard" output="screen">
-    <rosparam command="load" file="$(find f1tenth_simulator)/params.yaml"/>
-  </node>
-
-  <!-- ***Put launch command for new planner here:-->
-  <!-- Launch the New Planner Node -->
-  <!--   <node pkg="f1tenth_simulator" name="new node's name" type="new file name" output="screen">
-          <rosparam command="load" file="$(find f1tenth_simulator)/params.yaml"/>
-  	 </node>    -->
-
+  <include file="$(find racecar)/launch/includes/$(arg racecar_version)-teleop.launch.xml">
+    <arg name="racecar_version" value="$(arg racecar_version)" />
+    <arg name="run_camera" value="$(arg run_camera)" />
+  </include>
   
-  <!-- Launch RVIZ -->
-    <node pkg="rviz" type="rviz" name="rviz" args="-d $(find f1tenth_simulator)/launch/simulator.rviz" output="screen"/>
+  <node pkg="wall_follow" type="slow_crash.py" name="slow_crash" output="screen"/>
+  <node name="safety_node" pkg="safety_node2" type="safety_node.py" output = "screen"/>
+  <!-- note that if we do not have a safety node, the car will crash into the wall! -->
+
 </launch>
