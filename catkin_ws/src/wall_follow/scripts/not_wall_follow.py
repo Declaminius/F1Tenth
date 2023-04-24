@@ -30,7 +30,7 @@ speed = 0
 #WALL FOLLOW PARAMS
 ANGLE_RANGE = 270 # Hokuyo 10LX has 270 degrees scan
 DESIRED_DISTANCE_RIGHT = 0.9 # meters
-DESIRED_DISTANCE_LEFT = 1
+DESIRED_DISTANCE_LEFT = 0.9
 CAR_LENGTH = 0.50 # Traxxas Rally is 20 inches or 0.5 meters
 
 class WallFollow:
@@ -45,9 +45,9 @@ class WallFollow:
         self.kd = 0.09
         self.ki = 0
 
-        self.fast_speed = 5
-        self.medium_speed = 3
-        self.slow_speed = 1
+        self.fast_speed = 0.75
+        self.medium_speed = 0.5
+        self.slow_speed = 0.25
 
         self.actual_speed = 0
 
@@ -58,6 +58,7 @@ class WallFollow:
         self.steering_angle_pub = rospy.Publisher("/steering_angle_topic", Float32, queue_size = 1000)
         self.left_dist_pub = rospy.Publisher("/left_dist_topic", Float32, queue_size = 1000)
         self.desired_dist_pub = rospy.Publisher("/desired_dist_topic", Float32, queue_size = 1000)
+        self.desired_speed_pub = rospy.Publisher("/desired_speed_topic", Float32, queue_size = 1000)
         self.drive_pub = rospy.Publisher("/nav", AckermannDriveStamped, queue_size = 1000)
 
     def getRange(self, scan_msg, angle):
@@ -104,6 +105,7 @@ class WallFollow:
         drive_msg.drive.steering_angle = angle*np.pi/180
         drive_msg.drive.speed = speed
         
+        self.desired_speed_pub.publish(speed)
         self.drive_pub.publish(drive_msg)
         self.steering_angle_pub.publish(angle)
         

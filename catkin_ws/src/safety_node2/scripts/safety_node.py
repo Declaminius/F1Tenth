@@ -27,14 +27,18 @@ class Safety(object):
 
         NOTE that the x component of the linear velocity in odom is the speed
         """
+
+        led_topic = "/led/red"
+
         self.speed = 0
         self.threshold = 0.5
-        self.margin = 0.25
+        self.margin = 0.2
         rospy.Subscriber("scan", LaserScan, self.scan_callback)
         rospy.Subscriber("odom", Odometry, self.odom_callback)
         self.break_pub = rospy.Publisher("brake",AckermannDriveStamped,queue_size=1000)
         self.break_bool_pub = rospy.Publisher("brake_bool",Bool,queue_size=1000)
         self.ttc_pub = rospy.Publisher("ttc", Float32, queue_size = 1000)
+        self.led_pub = rospy.Publisher(led_topic, Bool, queue_size=1)
 
     def odom_callback(self, odom_msg):
         self.speed = odom_msg.twist.twist.linear.x
@@ -57,10 +61,13 @@ class Safety(object):
             break_bool_msg.data = True
             self.break_pub.publish(break_msg)
             self.break_bool_pub.publish(break_bool_msg)
+            self.led_pub.publish(break_bool_msg)
         else:
             break_bool_msg = Bool()
             break_bool_msg.data = False
             self.break_bool_pub.publish(break_bool_msg)
+            self.led_pub.publish(break_bool_msg)
+
     
     def dyn_callback(self, config, level):
         self.threshold = config.threshold
