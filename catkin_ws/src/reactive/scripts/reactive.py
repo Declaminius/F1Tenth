@@ -80,7 +80,7 @@ class FollowTheGap:
     def follow_the_gap(self, scan_msg):
         threshold = 1
         safety_radius = 0.5
-        speed = 1
+        speed = 0.5
         n = len(scan_msg.ranges)
         min_angle = 0
         max_angle = 180
@@ -132,6 +132,7 @@ class FollowTheGap:
         
         max_gap_end = max_gap_start + max_gap_length
 
+
         
         # furthest point
         # best_point = np.argmax(forward_ranges[max_gap_start:max_gap_end]) + max_gap_start
@@ -144,8 +145,8 @@ class FollowTheGap:
 
 
         self.steering_angle = self.compute_steering_angle(scan_msg, best_point)
-        #print(f"{steering_angle=}")
-        #print(f"{max_gap_start=}")
+        print(f"{self.steering_angle=}")
+        print(f"{self.best_distance=}")
 
         drive_msg = AckermannDriveStamped()
         drive_msg.header.stamp = rospy.Time.now()
@@ -161,9 +162,9 @@ class FollowTheGap:
         scan_msg.intensities[max_gap_start:max_gap_end] = 5
         self.gap_pub.publish(scan_msg)
 
-        # self.visualize_point([self.best_distance*np.cos(self.steering_angle), self.best_distance*np.sin(self.steering_angle)], r = 0, g = 1, b = 0)
+        self.visualize_point([self.best_distance*np.cos(self.steering_angle), self.best_distance*np.sin(self.steering_angle)], r = 0, g = 1, b = 0)
 
-        self.visualize_point([min_dist*(np.cos(self.get_scan_angle(scan_msg, min_index + 400) - np.pi/2)), min_dist*(np.sin(self.get_scan_angle(scan_msg, min_index + 400)) - np.pi/2)], r = 1, g = 0, b = 0)
+        # self.visualize_point([min_dist*(np.cos(self.get_scan_angle(scan_msg, min_index + 400) - np.pi/2)), min_dist*(np.sin(self.get_scan_angle(scan_msg, min_index + 400)) - np.pi/2)], r = 1, g = 0, b = 0)
 
 
         

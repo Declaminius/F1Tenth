@@ -1,0 +1,18 @@
+<!-- -*- mode: XML -*- -->
+<launch>
+  <arg name="racecar_version" default="racecar-v2" />
+  <arg name="run_camera" default="false"/>
+
+  <remap from="brake" to="/vesc/low_level/ackermann_cmd_mux/input/safety" />
+  <remap from="nav" to="/vesc/high_level/ackermann_cmd_mux/input/nav_0" />
+  <remap from="odom" to="/vesc/vesc/odom"/>
+
+  <include file="$(find racecar)/launch/includes/$(arg racecar_version)-teleop.launch.xml">
+    <arg name="racecar_version" value="$(arg racecar_version)" />
+    <arg name="run_camera" value="$(arg run_camera)" />
+  </include>
+  
+  <node name="reactive" pkg="reactive" type="reactive.py" output="screen"/>
+  <!-- note that if we do not have a safety node, the car will crash into the wall! -->
+
+</launch>
