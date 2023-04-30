@@ -28,6 +28,7 @@ class FollowTheGap:
         drive_topic = '/nav'
 
         self.lookahead_dist = 2
+        self.margin = 0.3
         self.steering_angle = 0
         self.velocity = 0
 
@@ -51,9 +52,12 @@ class FollowTheGap:
         self.gap_pub = rospy.Publisher("/gap_viz", LaserScan, queue_size = 1000)   
     
     def myScanAngle(self, scan_msg, index):
+        # returns angle in radians
         return scan_msg.angle_min + index * scan_msg.angle_increment
     
     def myScanIndex(self, scan_msg, angle):
+        # expects an angle in degrees and outputs the respective index in the scan_ranges array.
+        # angle: between -135 to 135 degrees, where 0 degrees is directly to the front
         range = 100.
         index = 0
 
@@ -86,17 +90,15 @@ class FollowTheGap:
 
     def compute_speed(self):
         rospy.loginfo_throttle(1, 'ttc: "%s"'%self.ttc)
-        self.speed = min(7, max(0.5, 7 * (1 - math.exp(-0.75 * self.ttc))))
+        speed = min(7, max(0.5, 8 * (1 - math.exp(-0.75 * self.ttc))))
         clip = math.exp(3*self.steering_angle - 2)
-        diff = self.speed - clip
-        if diff > 0:
-            self.speed = diff
+        diff = speed - clip
+        if diff > 0.5:
+            speed = diff
         else:
-            self.speed = 0.5
-
-
-    def lidar_callback(self, scan_msg):
-        self.follow_the_gap(scan_msg)
+            speed = 0.5
+        
+        return speed
     
     # def compute_ttc_for_beam(self, scan_msg, angle):
     #     range = max(0.01, self.myGetRange(scan_msg, self.steering_angle) - self.lookahead_dist / 2)
@@ -108,31 +110,40 @@ class FollowTheGap:
         # find maximal subarray of consecutive non-zeroes
         max_gap_start = 0
         max_gap_length = 0
+        max_gap_distance = 0
         gap_start = 0
         gap_length = 0
+        gap_distance = 0
 
-
+        # new improvement: instead of simply maximizing the length of the gap;
+        # i also include the distance of the largest scan within the gap
+        # by maximizing gap_length*gap_distance
         for (i, scan_range) in enumerate(ranges):
             if scan_range > 0.:
                 gap_length += 1
+                if scan_range > gap_distance:
+                    gap_distance = scan_range
             else:
-                if gap_length > max_gap_length:
+                if gap_length*gap_distance > max_gap_length*max_gap_distance:
                     max_gap_length = gap_length
                     max_gap_start = gap_start
+                    max_gap_distance = gap_distance
                 gap_start = i + 1
                 gap_length = 0
+                gap_distance = 0
         if gap_length > max_gap_length:
             max_gap_length = gap_length
             max_gap_start = gap_start
+            max_gap_distance = gap_distance
         
         max_gap_end = max_gap_start + max_gap_length
 
         return max_gap_start, max_gap_length
 
     def follow_the_gap(self, scan_msg):
-        threshold = 0.5
-        min_angle = -80
-        max_angle = 80
+        threshold = 0.6
+        min_angle = -85
+        max_angle = 85
         min_angle_index = self.myScanIndex(scan_msg, min_angle)
         max_angle_index = self.myScanIndex(scan_msg, max_angle)
         scan_ranges = np.array(scan_msg.ranges)
@@ -146,20 +157,6 @@ class FollowTheGap:
         # self.ttc = range_ahead / velocity if velocity > 0 else 100
         
         ### Put a safety bubble around the closest distance returned by the LiDar
-
-        ### Changed to instead set all points with a projected ttc below a certain threshold to 0
-
-        projected_speed_array = self.velocity * np.cos(scan_angles)
-        projected_speed_array[projected_speed_array < 0.1] = 0.1
-        ttc_array = scan_ranges / projected_speed_array
-        self.ttc = np.min(ttc_array)
-
-        scan_ranges[ttc_array < 1] = 0
-        scan_ranges[scan_ranges < threshold] = 0
-
-        # min_ttc_index = np.argmin(ttc_array[min_angle_index: max_angle_index]) + min_angle_index
-        
-
 
         # min_dist = scan_ranges[min_ttc_index]
         # if min_dist - self.lookahead_dist > safety_radius:
@@ -177,23 +174,74 @@ class FollowTheGap:
         #     if min_dist * (abs(self.myScanAngle(scan_msg, i) - min_dist_angle)) < safety_radius:
         #         scan_ranges[i] = 0.
 
-        # Set backward ranges to zero to prevent the car turning around
+        ### Changed to instead set all points with a projected ttc below a certain threshold to 0
+
+        projected_speed_array = self.velocity * np.cos(scan_angles)
+        projected_speed_array[projected_speed_array < 0.1] = 0.1
+        ttc_array = (np.maximum(0,scan_ranges - self.margin)) / projected_speed_array
+        self.ttc = np.min(ttc_array)
+        self.min_dist_index = np.argmin(scan_ranges)
+        self.min_dist = scan_ranges[self.min_dist_index]
+
+        scan_ranges[ttc_array < 1] = 0
+        scan_ranges[scan_ranges < threshold] = 0
+
+
+        ### Set backward ranges to zero to prevent the car turning around in sharp corners
         scan_ranges[:min_angle_index] = 0
         scan_ranges[max_angle_index:] = 0
 
+
+        ### Compute the gap maximizing length*distance
         max_gap_start, max_gap_length = self.compute_largest_gap(scan_ranges)
         max_gap_end = max_gap_start + max_gap_length
 
-        # Option 1: Choose furthest point within the largest gap
-        # best_point = np.argmax(scan_ranges[max_gap_start: max_gap_end]) + max_gap_start
+        ### Choosing the best point within the gap
 
-        # Option 2: Choose middle point of the largest gap
+        ### Option 1: Choose furthest point within the largest gap
+        ### best_point = np.argmax(scan_ranges[max_gap_start: max_gap_end]) + max_gap_start
+
+        ### Option 2: Choose middle point of the largest gap
         best_point = max_gap_start + int(max_gap_length / 2)
+        # if scan_ranges[best_point] < 2*threshold:
+        #     best_point = np.argmax(scan_ranges[max_gap_start: max_gap_end]) + max_gap_start
 
+        ### Option 3: Use an evenly distributed number of candidate waypoints within the largest gap
+        ### and choose the waypoint with is the farthest away
+
+        # num_points = 2
+        # candidate_points = np.linspace(max_gap_start, max_gap_end, num_points+2, dtype = int)[1:-1]
+
+        # best_point = None
+        # best_dist = 0
+
+        # for point in candidate_points:
+        #     if scan_ranges[point] > best_dist:
+        #         best_dist = scan_ranges[point]
+        #         best_point = point
+            
         self.best_distance = scan_ranges[best_point]
 
-        self.steering_angle = self.compute_steering_angle(scan_msg, ttc_array, best_point)
-        self.compute_speed()
+        # some manual collision avoidance if we are too close to the wall
+        right_dist = scan_msg.ranges[self.myScanIndex(scan_msg, -90)]
+        left_dist = scan_msg.ranges[self.myScanIndex(scan_msg, 90)]
+        front_dist = scan_msg.ranges[self.myScanIndex(scan_msg, 0)]
+        if right_dist < self.margin and right_dist < left_dist:
+            self.steering_angle = np.pi/18 # 10 degrees left
+            print(f"DANGER! Turning left because {right_dist=}")
+        elif left_dist < self.margin:
+            self.steering_angle = -np.pi/18 # 10 degrees right
+            print(f"DANGER! Turning right because {left_dist=}")
+        elif front_dist < self.margin:
+            if right_dist < left_dist:
+                self.steering_angle = np.pi/9 # 20 degrees left
+            else:
+                self.steering_angle = -np.pi/9 # 20 degrees right
+        else:
+            self.steering_angle = self.compute_steering_angle(scan_msg, ttc_array, best_point)
+        self.speed = self.compute_speed()
+        # self.speed = 0.5
+        
 
         drive_msg = AckermannDriveStamped()
         drive_msg.header.stamp = rospy.Time.now()
@@ -208,7 +256,7 @@ class FollowTheGap:
 
         scan_msg.intensities = scan_ranges
         scan_msg.intensities[ttc_array < 1] = 1
-        scan_msg.intensities[max_gap_start:max_gap_end] = 10
+        scan_msg.intensities[max_gap_start:max_gap_end] = 5
         self.gap_pub.publish(scan_msg)
 
         self.visualize_point([self.best_distance*np.cos(self.steering_angle), self.best_distance*np.sin(self.steering_angle)], r = 0, g = 1, b = 0)
@@ -219,6 +267,10 @@ class FollowTheGap:
     def compute_steering_angle(self, scan_msg, ttc_array, best_point):
         steering_angle = self.myScanAngle(scan_msg, best_point)
         return steering_angle
+
+
+    def lidar_callback(self, scan_msg):
+        self.follow_the_gap(scan_msg)
 
     def odom_callback(self, odom_msg):
         self.velocity = odom_msg.twist.twist.linear.x
