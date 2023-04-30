@@ -86,7 +86,7 @@ class FollowTheGap:
 
     def compute_speed(self):
         rospy.loginfo_throttle(1, 'ttc: "%s"'%self.ttc)
-        self.speed = min(7, max(0.5, 5 * (1 - math.exp(-0.75 * self.ttc))))
+        self.speed = min(7, max(0.5, 7 * (1 - math.exp(-0.75 * self.ttc))))
         clip = math.exp(3*self.steering_angle - 2)
         diff = self.speed - clip
         if diff > 0:
@@ -103,16 +103,6 @@ class FollowTheGap:
     #     cosine = math.cos(self.steering_angle)
     #     velocity = self.velocity * cosine
     #     self.ttc = range / velocity if velocity > 0 else 100
-
-    def compute_speed(self):
-        rospy.loginfo_throttle(1, 'ttc: "%s"'%self.ttc)
-        self.speed = min(7, max(0.5, 5 * (1 - math.exp(-0.9 * self.ttc))))
-        clip = math.exp(2*self.steering_angle - 2)
-        diff = self.speed - clip
-        if diff > 0:
-            self.speed = diff
-        else:
-            self.speed = 0.5
     
     def compute_largest_gap(self, ranges):
         # find maximal subarray of consecutive non-zeroes
@@ -140,8 +130,7 @@ class FollowTheGap:
         return max_gap_start, max_gap_length
 
     def follow_the_gap(self, scan_msg):
-        threshold = 3.
-        safety_radius = 0.5
+        threshold = 0.5
         min_angle = -80
         max_angle = 80
         min_angle_index = self.myScanIndex(scan_msg, min_angle)
@@ -166,6 +155,8 @@ class FollowTheGap:
         self.ttc = np.min(ttc_array)
 
         scan_ranges[ttc_array < 1] = 0
+        scan_ranges[scan_ranges < threshold] = 0
+
         # min_ttc_index = np.argmin(ttc_array[min_angle_index: max_angle_index]) + min_angle_index
         
 
@@ -201,7 +192,7 @@ class FollowTheGap:
 
         self.best_distance = scan_ranges[best_point]
 
-        self.steering_angle = self.compute_steering_angle(scan_msg, best_point)
+        self.steering_angle = self.compute_steering_angle(scan_msg, ttc_array, best_point)
         self.compute_speed()
 
         drive_msg = AckermannDriveStamped()
@@ -225,7 +216,7 @@ class FollowTheGap:
         self.marker_viz(self.speed, self.steering_angle)
 
 
-    def compute_steering_angle(self, scan_msg, best_point):
+    def compute_steering_angle(self, scan_msg, ttc_array, best_point):
         steering_angle = self.myScanAngle(scan_msg, best_point)
         return steering_angle
 
