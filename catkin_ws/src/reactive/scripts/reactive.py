@@ -63,46 +63,35 @@ class FollowTheGap:
         length = len(scan_msg.ranges)
         angle = ((index / length * 270) - 45)/180*np.pi
         return angle
-
-    def getRange(self, scan_msg, angle):
-        # data: single message from topic /scan
-        # angle: between -45 to 225 degrees, where 0 degrees is directly to the right
-        # Outputs length in meters to object with angle in lidar scan field of view
-
-        angle_degrees = angle * 180 / np.pi
-        position = (angle_degrees + 45) / 270
-        length = len(scan_msg.ranges)
-        index = int(length * position)
-        return scan_msg.ranges[index]
     
-    def myScanIndex(self, data, angle):
+    def myScanIndex(self, scan_msg, angle):
         range = 100.
         index = 0
 
         rad_angle = angle * math.pi / 180.0
 
-        if not (data.angle_min < rad_angle < data.angle_max): 
+        if not (scan_msg.angle_min <= rad_angle <= scan_msg.angle_max): 
             rospy.loginfo("ANGLE out of range")
             return 100.
 
-        index = int((rad_angle - data.angle_min) / data.angle_increment)
+        index = int((rad_angle - scan_msg.angle_min) / scan_msg.angle_increment)
 
         return index
 
-    def myGetRange(self, data, angle):
-        # data: single message from topic /scan
+    def myGetRange(self, scan_msg, angle):
+        # scan_msg: single message from topic /scan
         # angle: between -45 to 225 degrees, where 0 degrees is directly to the right
         # Outputs length in meters to object with angle in lidar scan field of view
-        #make sure to take care of nans etc.
+        # make sure to take care of nans etc.
         range = 100.
-        index = self.myScanIndex(data, angle)
+        index = self.myScanIndex(scan_msg, angle)
 
         # rospy.logdebug('index: "%s"'%index)
 
-        if data.ranges[index] == math.inf or data.ranges[index] == math.nan: 
+        if scan_msg.ranges[index] == math.inf or scan_msg.ranges[index] == math.nan: 
             rospy.loginfo("No LIDAR data for angle")
             return 100.
-        range = data.ranges[index]
+        range = scan_msg.ranges[index]
         # rospy.logdebug('range: "%s"'%range)
         return range
 
@@ -121,44 +110,13 @@ class FollowTheGap:
         self.follow_the_gap(scan_msg)
     
     # def compute_ttc_for_beam(self, scan_msg, angle):
-    #     range = max(0.01, self.getRange(scan_msg, self.steering_angle) - self.lookahead_dist / 2)
+    #     range = max(0.01, self.myGetRange(scan_msg, self.steering_angle) - self.lookahead_dist / 2)
     #     cosine = math.cos(self.steering_angle)
     #     velocity = self.velocity * cosine
     #     self.ttc = range / velocity if velocity > 0 else 100
-
-    def myScanIndex(self, data, angle):
-        range = 100.
-        index = 0
-
-        rad_angle = angle * math.pi / 180.0
-
-        if not (data.angle_min < rad_angle < data.angle_max): 
-            rospy.loginfo("ANGLE out of range")
-            return 100.
-
-        index = int((rad_angle - data.angle_min) / data.angle_increment)
-
-        return index
     
     def myScanAngle(self, scan_msg, index):
         return scan_msg.angle_min + index * scan_msg.angle_increment
-
-    def myGetRange(self, data, angle):
-        # data: single message from topic /scan
-        # angle: between -45 to 225 degrees, where 0 degrees is directly to the right
-        # Outputs length in meters to object with angle in lidar scan field of view
-        #make sure to take care of nans etc.
-        range = 100.
-        index = self.myScanIndex(data, angle)
-
-        # rospy.logdebug('index: "%s"'%index)
-
-        if data.ranges[index] == math.inf or data.ranges[index] == math.nan: 
-            rospy.loginfo("No LIDAR data for angle")
-            return 100.
-        range = data.ranges[index]
-        # rospy.logdebug('range: "%s"'%range)
-        return range
 
     def compute_speed(self):
         rospy.loginfo_throttle(1, 'ttc: "%s"'%self.ttc)
@@ -169,65 +127,8 @@ class FollowTheGap:
             self.speed = diff
         else:
             self.speed = 0.5
-
-        # return speed
-
-    def follow_the_gap(self, scan_msg):
-        threshold = 3.
-        safety_radius = 0.5
-        self.compute_speed()
-        n = len(scan_msg.ranges)
-        min_angle = 0
-        max_angle = 180
-
-        front = self.myGetRange(scan_msg, self.steering_angle)
-        closest = front
-        angle = self.steering_angle
-        # range = max(0.01, self.myGetRange(scan_msg, self.steering_angle) - self.lookahead_dist / 2)
-        range_ahead = max(0.01, closest - self.lookahead_dist / 1)
-        cosine = math.cos(angle)
-        velocity = self.speed * cosine
-        self.ttc = range_ahead / velocity if velocity > 0 else 100
-
-
-        forward_ranges = np.array(scan_msg.ranges)
-        # forward_ranges[forward_ranges > 0] += self.lookahead_dist
-        # forward_ranges[forward_ranges < 0] = 0
-        # angles = [self.get_scan_angle(scan_msg, idx) for idx in range(0, forward_ranges.size)]
-
-        # min_index = np.argmin(forward_ranges[400:680])
-        min_index = np.argmin(forward_ranges[self.get_scan_index(scan_msg, 0):self.get_scan_index(scan_msg, 180)])
-        min_dist = forward_ranges[min_index]
-        if min_dist - self.lookahead_dist > safety_radius:
-            safety_angle = np.arcsin(safety_radius/min_dist)
-        else:
-            # safety_angle = np.radians(np.pi/2)
-            safety_angle = 0.4
-
-        front_dist = forward_ranges[540]
-
-
-        # safety_range = self.get_scan_index(scan_msg, safety_angle)
-        # print(abs(safety_range - min_index))
-        # # safety_range = 150
-        # forward_ranges[min_index - safety_range: min_index + safety_range] = 0
-        # print(safety_angle)
-        safety_left = self.get_scan_index(scan_msg, math.degrees(self.get_scan_angle(scan_msg, min_index) - safety_angle))
-        safety_right = self.get_scan_index(scan_msg, math.degrees(self.get_scan_angle(scan_msg, min_index) + safety_angle))
-        forward_ranges[safety_left: safety_right] = 0
-
-        # for  i in range(0, len(forward_ranges)):
-        #     print(min_index)
-        #     if min_dist * np.sin(abs(self.get_scan_angle(scan_msg, i) - self.get_scan_angle(scan_msg, min_index))) < safety_radius:
-        #         forward_ranges[i] = 0
-        
-        print(min_index)
-
-        min_angle = self.get_scan_angle(scan_msg, min_index)
-        for i in range (0, len(forward_ranges)):
-            if min_dist * (abs(self.get_scan_angle(scan_msg, i) - min_angle)) < safety_radius:
-                forward_ranges[i] = 0.
-
+    
+    def compute_largest_gap(self, ranges):
         # find maximal subarray of consecutive non-zeroes
         max_gap_start = 0
         max_gap_length = 0
@@ -235,8 +136,7 @@ class FollowTheGap:
         gap_length = 0
 
 
-        for (i, scan_range) in enumerate(forward_ranges):
-        # forward_ranges[forward_ranges > 0] -= self.lookahead_dist
+        for (i, scan_range) in enumerate(ranges):
             if scan_range > 0.:
                 gap_length += 1
             else:
@@ -251,22 +151,60 @@ class FollowTheGap:
         
         max_gap_end = max_gap_start + max_gap_length
 
+        return max_gap_start, max_gap_length
+
+    def follow_the_gap(self, scan_msg):
+        threshold = 3.
+        safety_radius = 0.5
+        # self.compute_speed()
+        self.speed = 1
+        n = len(scan_msg.ranges)
+        min_angle = 0
+        max_angle = 180
 
         
-        # best_point = np.argmax(scan_msg.ranges)
+        # front = self.myGetRange(scan_msg, self.steering_angle)
+        front = self.myGetRange(scan_msg, np.pi)
+        range_ahead = max(0.01, front - self.lookahead_dist)
+        velocity = self.speed * math.cos(self.steering_angle)
+        self.ttc = range_ahead / velocity if velocity > 0 else 100
+
+
+        forward_ranges = np.array(scan_msg.ranges)
+
+        min_index = np.argmin(forward_ranges[self.get_scan_index(scan_msg, 0):self.get_scan_index(scan_msg, 180)])
+        min_dist = forward_ranges[min_index]
+        if min_dist - self.lookahead_dist > safety_radius:
+            safety_angle = np.arcsin(safety_radius/min_dist)
+        else:
+            safety_angle = 0.4
+
+
+        # safety_range = self.get_scan_index(scan_msg, safety_angle)
+        # print(abs(safety_range - min_index))
+        # # safety_range = 150
+        # forward_ranges[min_index - safety_range: min_index + safety_range] = 0
+        # print(safety_angle)
+        safety_left = self.get_scan_index(scan_msg, math.degrees(self.get_scan_angle(scan_msg, min_index) - safety_angle))
+        safety_right = self.get_scan_index(scan_msg, math.degrees(self.get_scan_angle(scan_msg, min_index) + safety_angle))
+        forward_ranges[safety_left: safety_right] = 0
+
+        min_angle = self.get_scan_angle(scan_msg, min_index)
+        # for i in range (0, len(forward_ranges)):
+        #     if min_dist * (abs(self.get_scan_angle(scan_msg, i) - min_angle)) < safety_radius:
+        #         forward_ranges[i] = 0.
+
+        max_gap_start, max_gap_length = self.compute_largest_gap(forward_ranges)
+        max_gap_end = max_gap_start + max_gap_length
+
+        # Option 1: Choose furthest point within the largest gap
+        # best_point = np.argmax(forward_ranges[max_gap_start: max_gap_end]) + max_gap_start
+
+        # Option 2: Choose middle point of the largest gap
         best_point = max_gap_start + int(max_gap_length / 2)
 
-
-        # closest_point = np.argmin(forward_ranges)
-        # self.visualize_point([forward_ranges[min_index]*np.cos(self.get_scan_angle(scan_msg, min_index)), forward_ranges[min_index]*np.sin(self.get_scan_angle(scan_msg, min_index))])
-
         self.best_distance = forward_ranges[best_point]
-
-
-
         self.steering_angle = self.compute_steering_angle(scan_msg, best_point)
-        # print(f"{self.steering_angle=}")
-        # print(f"{self.best_distance=}")
 
         drive_msg = AckermannDriveStamped()
         drive_msg.header.stamp = rospy.Time.now()
@@ -284,11 +222,11 @@ class FollowTheGap:
         scan_msg.intensities[max_gap_start:max_gap_end] = 5
         self.gap_pub.publish(scan_msg)
 
-        # self.visualize_point([self.best_distance*np.cos(self.steering_angle), self.best_distance*np.sin(self.steering_angle)], r = 0, g = 1, b = 0)
+        self.visualize_point([self.best_distance*np.cos(self.steering_angle), self.best_distance*np.sin(self.steering_angle)], r = 0, g = 1, b = 0)
 
         if min_dist == 0.:
             min_dist = 7
-        self.visualize_point([min_dist*(np.cos(self.get_scan_angle(scan_msg, min_index + 400) - np.pi/2)), min_dist*(np.sin(self.get_scan_angle(scan_msg, min_index + 400)) - np.pi/2)], r = 1, g = 0, b = 0)
+        # self.visualize_point([min_dist*(np.cos(self.get_scan_angle(scan_msg, min_index + 400) - np.pi/2)), min_dist*(np.sin(self.get_scan_angle(scan_msg, min_index + 400)) - np.pi/2)], r = 1, g = 0, b = 0)
 
 
         
@@ -384,7 +322,7 @@ class DisparityExtender:
         self.drive_pub = rospy.Publisher("/nav", AckermannDriveStamped, queue_size = 1000)
 
     def getRange(self, scan_msg, angle):
-        # data: single message from topic /scan
+        # scan_msg: single message from topic /scan
         # angle: between -45 to 225 degrees, where 0 degrees is directly to the right
         # Outputs length in meters to object with angle in lidar scan field of view
 
