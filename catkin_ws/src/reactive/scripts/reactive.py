@@ -81,7 +81,7 @@ class FollowTheGap:
         return range
 
     def compute_speed(self):
-        rospy.loginfo_throttle(1, 'ttc: "%s"'%self.ttc)
+        # rospy.loginfo_throttle(1, 'ttc: "%s"'%self.ttc)
         speed = min(7, max(0.5, 7* (1 - math.exp(-0.75 * self.ttc))))
         clip = math.exp(3*self.steering_angle - 2)
         diff = speed - clip
@@ -133,10 +133,10 @@ class FollowTheGap:
 
         if self.right_dist < self.margin and self.right_dist < self.left_dist:
             steering_angle = np.pi/4 # 45 degrees left
-            print(f"DANGER! Turning left because obstacle to our right")
+            # print(f"DANGER! Turning left because obstacle to our right")
         elif self.left_dist < self.margin:
             steering_angle = -np.pi/4 # 45 degrees right
-            print(f"DANGER! Turning right because obstacle to our left")
+            # print(f"DANGER! Turning right because obstacle to our left")
         else:
             # Scale the steering angle according to distance to waypoint
             steering_angle = self.myScanAngle(scan_msg, best_point)
