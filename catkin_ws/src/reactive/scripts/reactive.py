@@ -84,7 +84,7 @@ class FollowTheGap:
         range = scan_msg.ranges[index]
         return range
 
-    def compute_speed(self):
+    def compute_speed(self, factor):
         # rospy.loginfo_throttle(1, 'ttc: "%s"'%self.ttc)
         speed = min(7, max(0.5, 7* (1 - math.exp(-0.75 * self.ttc))))
         clip = math.exp(3*abs(self.steering_angle) - 2)
