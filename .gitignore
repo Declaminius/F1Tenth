@@ -1,4 +1,8 @@
 catkin_ws/build/
+catkin_ws/build_isolated/
 catkin_ws/devel/
+catkin_ws/devel_isolated/
+catkin_ws/install_isolated/
+catkin_ws/abseil-cpp
 catkin_ws/src/f1tenth_simulator/
 *.vscode

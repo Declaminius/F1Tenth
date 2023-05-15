@@ -11,7 +11,7 @@ import rospy
 from sensor_msgs.msg import Image, LaserScan
 from ackermann_msgs.msg import AckermannDriveStamped, AckermannDrive
 from nav_msgs.msg import Odometry
-from std_msgs.msg import Float32, Int32
+from std_msgs.msg import Float32, Int32, Bool
 from visualization_msgs.msg import Marker
 
 
@@ -45,7 +45,11 @@ class FollowTheGap:
         self.desired_speed_pub = rospy.Publisher("/desired_speed_topic", Float32, queue_size = 1000)
         self.drive_pub = rospy.Publisher("/nav", AckermannDriveStamped, queue_size = 1000)
         self.marker_pub = rospy.Publisher("/visualization_marker", Marker, queue_size = 1000)
-        self.gap_pub = rospy.Publisher("/gap_viz", LaserScan, queue_size = 1000)   
+        self.gap_pub = rospy.Publisher("/gap_viz", LaserScan, queue_size = 1000)
+        self.right_dist_pub = rospy.Publisher("/right_dist", Float32, queue_size = 1000)
+        self.left_dist_pub = rospy.Publisher("/left_dist", Float32, queue_size = 1000)
+        self.ttc_pub = rospy.Publisher("/ttc", Float32, queue_size = 1000)
+        self.emergency_steer_pub = rospy.Publisher("/emergency_steer", Int32, queue_size = 1000)     
     
     def myScanAngle(self, scan_msg, index):
         # returns angle in radians
@@ -81,12 +85,12 @@ class FollowTheGap:
         return range
 
     def compute_speed(self):
-        rospy.loginfo_throttle(1, 'ttc: "%s"'%self.ttc)
+        # rospy.loginfo_throttle(1, 'ttc: "%s"'%self.ttc)
         speed = min(7, max(0.5, 7* (1 - math.exp(-0.75 * self.ttc))))
-        clip = math.exp(3*self.steering_angle - 2)
+        clip = math.exp(3*abs(self.steering_angle) - 2)
         diff = speed - clip
         if diff > self.min_speed:
-            speed = diff
+            speed = factor*diff
         else:
             speed = self.min_speed
         
@@ -128,19 +132,20 @@ class FollowTheGap:
 
         return max_gap_start, max_gap_length
 
-    def compute_steering_angle(self, scan_msg, best_point):
+    def compute_steering_angle(self, scan_msg, best_point, emergency_steering = True):
         # some manual collision avoidance in case we are too close to the wall
 
         if self.right_dist < self.margin and self.right_dist < self.left_dist:
             steering_angle = np.pi/4 # 45 degrees left
-            print(f"DANGER! Turning left because obstacle to our right")
+            # print(f"DANGER! Turning left because obstacle to our right")
         elif self.left_dist < self.margin:
             steering_angle = -np.pi/4 # 45 degrees right
-            print(f"DANGER! Turning right because obstacle to our left")
+            # print(f"DANGER! Turning right because obstacle to our left")
         else:
             # Scale the steering angle according to distance to waypoint
             steering_angle = self.myScanAngle(scan_msg, best_point)
-            self.steering_angle *= 2/self.best_distance
+            steering_angle *= 2/max(0.1,self.best_distance)
+            self.emergency_steer_pub.publish(0)
         
         return steering_angle
     
@@ -186,9 +191,9 @@ class FollowTheGap:
 
 
     def follow_the_gap(self, scan_msg):
-        dist_threshold = 0.6
+        dist_threshold = 1.5
         safety_radius = 0.5
-        ttc_threshold = 1.5
+        ttc_threshold = 1.25
 
         min_angle = -75
         max_angle = 75
@@ -196,10 +201,27 @@ class FollowTheGap:
         max_angle_index = self.myScanIndex(scan_msg, max_angle)
 
         scan_ranges = np.array(scan_msg.ranges)
+        # disparities = np.diff(scan_ranges)
+        # disparities[abs(disparities) < 0.2] = 0
+        # for (i,d) in enumerate(disparities):
+        #     if d > 0:
+        #         safety_angle = np.arcsin(min(self.margin/scan_ranges[i],0.9))
+        #         safety_index = int(safety_angle/ scan_msg.angle_increment)
+                
+        #         for sgn in (-1,1):
+        #             for j in range(safety_index):
+        #                 if i+sgn*j >= len(scan_ranges):
+        #                     break
+        #                 elif disparities[i+sgn*j] != 0:
+        #                     break
+        #                 else:
+        #                     scan_ranges[i+sgn*j] = scan_ranges[i]
         scan_angles = np.linspace(scan_msg.angle_min, scan_msg.angle_max, len(scan_ranges))
-
         self.right_dist = np.min(scan_ranges[:self.myScanIndex(scan_msg, 0)])
         self.left_dist = np.min(scan_ranges[self.myScanIndex(scan_msg, 0):])
+
+        self.right_dist_pub.publish(self.right_dist)
+        self.left_dist_pub.publish(self.left_dist)
 
         ### New version: Set all points with a projected ttc below a certain threshold to 0
 
@@ -207,6 +229,7 @@ class FollowTheGap:
         projected_speed_array[projected_speed_array < 0.1] = 0.1
         ttc_array = (np.maximum(0,scan_ranges - self.margin)) / projected_speed_array
         self.ttc = np.min(ttc_array)
+        self.ttc_pub.publish(self.ttc)
         scan_ranges[ttc_array < ttc_threshold] = 0
         
         ### Old version: Put a safety bubble around the closest distance returned by the LiDar
@@ -245,17 +268,17 @@ class FollowTheGap:
 
         ### Choose the best point within the largest gap
 
-        self.best_point = self.choose_waypoint(scan_ranges)
+        self.best_point = self.choose_waypoint(scan_ranges, option = 1)
         self.best_distance = scan_ranges[self.best_point]
 
         ### Compute the steering angle based on the best point and our distance towards it
         ### In addition, perform emergency steering in case we are too close to the wall
 
-        self.steering_angle = self.compute_steering_angle(scan_msg, self.best_point)
+        self.steering_angle = self.compute_steering_angle(scan_msg, self.best_point, emergency_steering = False)
 
         ### Compute the desired driving speed based on our current time-to-collision and steering angle
 
-        self.speed = self.compute_speed()
+        self.speed = self.compute_speed(factor = 0.5)
 
         ### Publish speed and steering angle
 
@@ -263,7 +286,7 @@ class FollowTheGap:
 
         ### Visualize the largest gap
 
-        scan_msg.intensities[ttc_array < 1] = 1
+        scan_msg.intensities[ttc_array < ttc_threshold] = 1
         scan_msg.intensities[self.max_gap_start:self.max_gap_end] = 2
         self.gap_pub.publish(scan_msg)
 
