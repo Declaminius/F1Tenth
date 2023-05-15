@@ -6,3 +6,5 @@ catkin_ws/install_isolated/
 catkin_ws/abseil-cpp
 catkin_ws/src/f1tenth_simulator/
 *.vscode
+.rosinstall*
+bag_files/
