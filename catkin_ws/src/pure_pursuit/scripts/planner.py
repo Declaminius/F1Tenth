@@ -2,6 +2,8 @@
 import sys
 import numpy as np
 import copy
+import skimage
+import time
 
 import rospy
 from sensor_msgs.msg import LaserScan
@@ -24,7 +26,6 @@ class PathGenerator:
         # Publishers
 
         self.drive_pub = rospy.Publisher("/nav", AckermannDriveStamped, queue_size = 1000)
-        self.driveable_area_pub = rospy.Publisher("/driveable_area", OccupancyGrid, queue_size = 1000)
 
         # Racecar state
         self.velocity = 0
@@ -101,6 +102,53 @@ class PathGenerator:
 
         return map_binary, starting_point
     
+    def calculate_finish_line(self, driveable_area, starting_point):
+        finish_line = [starting_point]
+        x = starting_point[0]
+        y = starting_point[1]
+        left_end = False
+        right_end = False
+
+        i = 1
+        while not (left_end and right_end):
+            if driveable_area[x,y+i] == 1 and not right_end:
+                finish_line.append((x,y+i))
+            else:
+                right_end = True
+            if driveable_area[x,y-i] == 1 and not left_end:
+                finish_line.append((x,y-i))
+            else:
+                left_end = True
+            i += 1
+
+        rospy.loginfo(finish_line)
+        return finish_line
+
+    
+    def erode_map(self, map_binary):
+
+        map_image = np.rot90(np.flip(map_binary, 0), 1)
+        skimage.io.imsave('~/F1Tenth/maps/map_binary.png', skimage.img_as_ubyte(255*map_image), check_contrast=False)
+
+        radius = 10
+
+        tic = time.time()
+        eroded_map = skimage.morphology.binary_erosion(map_binary, footprint = np.ones((2*radius,2*radius)))
+        toc = time.time()
+
+        rospy.loginfo(f"Time for binary erosion: {toc - tic}")
+
+        map_image = np.rot90(np.flip(eroded_map, 0), 1)
+
+        skimage.io.imsave('~/F1Tenth/maps/eroded_map.png', skimage.img_as_ubyte(map_image), check_contrast=False)
+        print("Saved map")
+
+        return eroded_map
+    
+    def calculate_distance(self, save_area, finish_line):
+        pass
+
+    
     def convert_position_to_grid_cell(self, map_msg, x, y):
         "Takes a position in meters and converts it to the correspdonging grid cell in the OccupancyGrid"
 
@@ -109,26 +157,6 @@ class PathGenerator:
 
         return index_x, index_y
 
-    
-    def map_callback(self, map_msg):
-        rospy.loginfo(f"Map Header: {map_msg.header}")
-        rospy.loginfo(f"Map info: {map_msg.info}")
-
-        self.map_width = map_msg.info.width
-        self.map_height = map_msg.info.height
-        self.map_res = map_msg.info.resolution
-
-
-        # I think map_binary is a misnomer since the values of this array are probabilities and definitely not binary!
-        self.map_binary, starting_point = self.preprocess_map(map_msg)
-
-        self.driveable_area = self.fill4(starting_point[0], starting_point[1])
-        driveable_area_msg = copy.deepcopy(map_msg)
-        driveable_area_msg.data = self.driveable_area.flatten()
-
-        print("Starting to publish")
-        self.driveable_area_pub.publish(driveable_area_msg)
-        print("Finished publishing")
 
     def fill4(self, x, y, occupancy_treshhold = 10):
         "Source: https://wikipedia.org/wiki/Floodfill"
@@ -148,7 +176,28 @@ class PathGenerator:
                 if x - 1 >= 0:
                     stack.append((x - 1, y))
         
-        return np.where(self.map_binary == 1000, 0, 100)
+        return np.where(self.map_binary == 1000, 1, 0)
+
+    
+    def map_callback(self, map_msg):
+        rospy.loginfo(f"Map Header: {map_msg.header}")
+        rospy.loginfo(f"Map info: {map_msg.info}")
+
+        self.map_width = map_msg.info.width
+        self.map_height = map_msg.info.height
+        self.map_res = map_msg.info.resolution
+
+        self.map_binary, starting_point = self.preprocess_map(map_msg)
+
+        tic = time.time()
+        driveable_area = self.fill4(starting_point[0], starting_point[1])
+        toc = time.time()
+        rospy.loginfo(f"Time for FloodFill: {toc - tic}")
+
+        finish_line = self.calculate_finish_line(driveable_area, starting_point)
+
+        safe_area = self.erode_map(driveable_area)
+
 
         
 
