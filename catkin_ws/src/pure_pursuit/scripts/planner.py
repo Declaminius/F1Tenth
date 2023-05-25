@@ -4,11 +4,14 @@ import numpy as np
 import copy
 import skimage
 import time
+import networkx
 
 import rospy
 from sensor_msgs.msg import LaserScan
 from ackermann_msgs.msg import AckermannDriveStamped
 from nav_msgs.msg import Odometry, OccupancyGrid
+from visualization_msgs.msg import Marker
+from geometry_msgs.msg import PoseStamped
 
 
 
@@ -26,6 +29,7 @@ class PathGenerator:
         # Publishers
 
         self.drive_pub = rospy.Publisher("/nav", AckermannDriveStamped, queue_size = 1000)
+        self.marker_pub = rospy.Publisher("/visualization_marker", Marker, queue_size = 1000)
 
         # Racecar state
         self.velocity = 0
@@ -66,8 +70,26 @@ class PathGenerator:
 
         return scan_msg.ranges[index]
     
-    def generate_path(self):
-        pass
+    def visualize_point(self,x,y,frame='map',r=0.0,g=1.0,b=0.0):
+        marker = Marker()
+        marker.header.frame_id = frame
+        marker.header.stamp = rospy.Time.now()
+        marker.id = 150
+        marker.type = marker.SPHERE
+        marker.action = marker.ADD
+        marker.scale.x = 1
+        marker.scale.y = 1
+        marker.scale.z = 1
+        marker.color.a = 1.0
+        marker.color.r = r
+        marker.color.g = g
+        marker.color.b = b
+        marker.pose.orientation.w = 1.0
+        marker.pose.position.x = x
+        marker.pose.position.y = y
+        marker.pose.position.z = 0
+        marker.lifetime = rospy.Duration(0.1)
+        self.marker_pub.publish(marker)
 
     def publish_drive_message(self):
         drive_msg = AckermannDriveStamped()
@@ -78,7 +100,7 @@ class PathGenerator:
         self.drive_pub.publish(drive_msg)
 
     def lidar_callback(self, scan_msg):
-        self.generate_path()
+        pass
 
     def odom_callback(self, odom_msg):
         self.velocity = odom_msg.twist.twist.linear.x
@@ -98,31 +120,24 @@ class PathGenerator:
         map_binary = np.array(map_msg.data).reshape((map_height, map_width))
 
         # TODO: Maybe replace hardcoded initial position?
-        starting_point = self.convert_position_to_grid_cell(map_msg, 0, 0)
+        starting_point = self.convert_position_to_grid_cell(0, 0)
 
         return map_binary, starting_point
     
     def calculate_finish_line(self, driveable_area, starting_point):
-        finish_line = [starting_point]
         x = starting_point[0]
         y = starting_point[1]
-        left_end = False
-        right_end = False
+        left_end = y
+        right_end = y
 
-        i = 1
-        while not (left_end and right_end):
-            if driveable_area[x,y+i] == 1 and not right_end:
-                finish_line.append((x,y+i))
-            else:
-                right_end = True
-            if driveable_area[x,y-i] == 1 and not left_end:
-                finish_line.append((x,y-i))
-            else:
-                left_end = True
-            i += 1
+        while driveable_area[x,right_end] == 1:
+            right_end += 1
 
-        rospy.loginfo(finish_line)
-        return finish_line
+        while driveable_area[x,left_end] == 1:
+            left_end -= 1  
+
+        rospy.loginfo(f"{right_end=}, {left_end=}")
+        return (x, left_end), (x, right_end)
 
     
     def erode_map(self, map_binary):
@@ -145,17 +160,59 @@ class PathGenerator:
 
         return eroded_map
     
-    def calculate_distance(self, save_area, finish_line):
-        pass
+    def shortest_path(self, safe_area, finish_line_start, finish_line_end):
+        "Use a simple breadth-first search"
+        x = finish_line_start[0]
+        visited = []
+        queue = [(x-1,y) for y in range(finish_line_start[1], finish_line_end[1] + 1)]
+        previous_node = {}
+        path = []
+        pos_x, pos_y = self.convert_grid_cell_to_position(finish_line_start[0], finish_line_start[1])
+        self.visualize_point(pos_x, pos_y)
+
+        i = 0
+        while queue != []:
+            i += 1
+            x,y = queue.pop()
+            if i % 10 == 0:
+                pos_x, pos_y = self.convert_grid_cell_to_position(x,y)
+                
+            if x == finish_line_start[0] and finish_line_start[1] <= y <= finish_line_end[1]:
+                path.append((x,y))
+                break
+    
+            visited.append((x,y))
+            for new_x, new_y in ((x+1,y), (x-1,y), (x,y+1), (x,y-1)):
+                if (new_x, new_y) not in visited and safe_area[new_x, new_y] == 1:
+                    queue.append((new_x,new_y))
+                    visited.append((x,y))
+                    previous_node[(new_x,new_y)] = (x,y)
+        
+        print(len(previous_node.keys()))
+        node = previous_node[path[0]]
+        while node not in finish_line:
+            node = previous_node[node]
+            path.append(node)
+
+        return path
+            
 
     
-    def convert_position_to_grid_cell(self, map_msg, x, y):
+    def convert_position_to_grid_cell(self, pos_x, pos_y):
         "Takes a position in meters and converts it to the correspdonging grid cell in the OccupancyGrid"
 
-        index_x = int(x/self.map_res + self.map_height/2)
-        index_y = int(y/self.map_res + self.map_width/2)
+        index_x = int(pos_x/self.map_res + self.map_height/2)
+        index_y = int(pos_y/self.map_res + self.map_width/2)
 
         return index_x, index_y
+    
+    def convert_grid_cell_to_position(self, index_x, index_y):
+        
+        pos_x = (index_x - self.map_height/2)*self.map_res
+        pos_y = (index_y - self.map_width/2)*self.map_res
+
+        return pos_x, pos_y
+
 
 
     def fill4(self, x, y, occupancy_treshhold = 10):
@@ -194,9 +251,13 @@ class PathGenerator:
         toc = time.time()
         rospy.loginfo(f"Time for FloodFill: {toc - tic}")
 
-        finish_line = self.calculate_finish_line(driveable_area, starting_point)
+        finish_line_start, finish_line_end = self.calculate_finish_line(driveable_area, starting_point)
 
         safe_area = self.erode_map(driveable_area)
+        shortest_path = self.shortest_path(safe_area, finish_line_start, finish_line_end)
+
+        for i in range(10):
+            rospy.loginfo(shortest_path[i])
 
 
         
