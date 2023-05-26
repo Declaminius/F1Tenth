@@ -5,6 +5,7 @@ import copy
 import skimage
 import time
 import networkx
+import queue
 
 import rospy
 from sensor_msgs.msg import LaserScan
@@ -22,8 +23,6 @@ class PathGenerator:
     def __init__(self):
         # Subscribers
 
-        self.lidar_sub = rospy.Subscriber("/scan", LaserScan, self.lidar_callback, queue_size=1)
-        self.odom_sub = rospy.Subscriber("/odom", Odometry, self.odom_callback, queue_size=1)
         self.map_sub = rospy.Subscriber("/map", OccupancyGrid, self.map_callback, queue_size=1)
 
         # Publishers
@@ -35,7 +34,7 @@ class PathGenerator:
 
         # Controller parameters
         self.sparsity = 5
-        self.scale = 3
+        self.scale = 1
         self.occupancy_treshhold = 10
         self.driving_speed = 0
         self.steering_angle = 0
@@ -110,9 +109,9 @@ class PathGenerator:
     def erode_map(self, driveable_area):
         map_image = np.flip(np.flip(driveable_area, 1), 0)
 
-        skimage.io.imsave('~/F1Tenth/maps/driveable_area.png', skimage.img_as_ubyte(255*map_image), check_contrast=False)
+        skimage.io.imsave('~/Documents/F1Tenth/maps/driveable_area.png', skimage.img_as_ubyte(255*map_image), check_contrast=False)
 
-        radius = 3
+        radius = 6
 
         tic = time.time()
         eroded_map = skimage.morphology.binary_erosion(driveable_area, footprint = np.ones((2*radius,2*radius)))
@@ -122,7 +121,7 @@ class PathGenerator:
 
         map_image = np.flip(np.flip(eroded_map, 1), 0)
 
-        skimage.io.imsave('~/F1Tenth/maps/eroded_map.png', skimage.img_as_ubyte(map_image), check_contrast=False)
+        skimage.io.imsave('~/Documents/F1Tenth/maps/driveable_area.png', skimage.img_as_ubyte(map_image), check_contrast=False)
         print("Saved map")
 
         return eroded_map
@@ -133,15 +132,23 @@ class PathGenerator:
         x = finish_line_start[0]
         visited = []
         finish_line = [(x,y) for y in range(finish_line_start[1], finish_line_end[1] + 1)]
-        queue = [(x-1,y) for y in range(finish_line_start[1], finish_line_end[1] + 1)]
+        my_queue = queue.Queue()
+        one_bef_finish_line = [(x-1,y) for y in range(finish_line_start[1], finish_line_end[1] + 1)]
+        for el in one_bef_finish_line:
+            my_queue.put(el)
         previous_node = {(x-1,y): (x,y) for y in range(finish_line_start[1], finish_line_end[1] + 1)}
         path = []
 
+        visited = np.array(safe_area)
+        visited.fill(False)
+        for el in one_bef_finish_line:
+            visited[el] = True
+
         i = 0
-        while queue != []:
+        while not my_queue.empty():
             i += 1
-            x,y = queue.pop(0)
-            visited.append((x,y))
+            x,y = my_queue.get()
+            visited[x,y] = True
 
             if i % 100 == 0:
                 print(i)
@@ -155,15 +162,15 @@ class PathGenerator:
             if (x+1,y) in finish_line:
                 new_x = x - 1
                 new_y = y
-                if ((new_x, new_y) not in visited) and safe_area[new_x, new_y] == 1:
-                    queue.append((new_x,new_y))
-                    visited.append((new_x,new_y))
+                if safe_area[new_x, new_y] == 1 and not visited[new_x, new_y]:
+                    my_queue.put((new_x,new_y))
+                    visited[new_x, new_y] = True
                     previous_node[(new_x,new_y)] = (x,y)
             else:
                 for new_x, new_y in ((x+1,y), (x-1,y), (x,y+1), (x,y-1)):
-                    if ((new_x, new_y) not in visited) and safe_area[new_x, new_y] == 1:
-                        queue.append((new_x,new_y))
-                        visited.append((new_x,new_y))
+                    if safe_area[new_x, new_y] == 1 and not visited[new_x, new_y]:
+                        my_queue.put((new_x,new_y))
+                        visited[new_x, new_y] = True
                         previous_node[(new_x,new_y)] = (x,y)
     
     def shortest_path(self, map_msg, safe_area, finish_line_start, finish_line_end):
