@@ -32,8 +32,6 @@ class PathGenerator:
         self.marker_pub = rospy.Publisher("/visualization_marker", Marker, queue_size = 1000)
         self.path_pub = rospy.Publisher('/path', Path, latch=True, queue_size=10)
 
-        # Racecar state
-        self.velocity = 0
 
         # Controller parameters
         self.sparsity = 5
@@ -41,38 +39,7 @@ class PathGenerator:
         self.occupancy_treshhold = 10
         self.driving_speed = 0
         self.steering_angle = 0
-    
-    def get_scan_angle(self, scan_msg, index):
-        # converts index to angle in radians
 
-        return scan_msg.angle_min + index * scan_msg.angle_increment
-    
-    def get_scan_index(self, scan_msg, angle):
-        # expects an angle in degrees and outputs the respective index in the scan_ranges array.
-        # angle: between -135 to 135 degrees, where 0 degrees is directly to the front
-
-        rad_angle = angle * np.pi / 180.0
-
-        if not (scan_msg.angle_min <= rad_angle <= scan_msg.angle_max):
-            rospy.loginfo("ANGLE out of range")
-            return 100.
-
-        index = int((rad_angle - scan_msg.angle_min) / scan_msg.angle_increment)
-
-        return index
-
-    def get_scan_range(self, scan_msg, angle):
-        # scan_msg: single message from topic /scan
-        # angle: between -135 to 135 degrees, where 0 degrees is directly to the front
-        # Outputs length in meters to object with angle in lidar scan field of view
-
-        index = self.get_scan_index(scan_msg, angle)
-
-        if scan_msg.ranges[index] == np.inf or scan_msg.ranges[index] == np.nan: 
-            rospy.loginfo("No LIDAR data for angle")
-            return 100.
-
-        return scan_msg.ranges[index]
     
     def visualize_point(self,x,y,frame='map',r=0.0,g=1.0,b=0.0):
         marker = Marker()
@@ -92,22 +59,9 @@ class PathGenerator:
         marker.pose.position.x = x
         marker.pose.position.y = y
         marker.pose.position.z = 0
-        marker.lifetime = rospy.Duration(0.1)
+        marker.lifetime = rospy.Duration(0.25)
         self.marker_pub.publish(marker)
 
-    def publish_drive_message(self):
-        drive_msg = AckermannDriveStamped()
-        drive_msg.header.stamp = rospy.Time.now()
-        drive_msg.header.frame_id = "laser"
-        drive_msg.drive.steering_angle = self.steering_angle
-        drive_msg.drive.speed = self.driving_speed
-        self.drive_pub.publish(drive_msg)
-
-    def lidar_callback(self, scan_msg):
-        pass
-
-    def odom_callback(self, odom_msg):
-        self.velocity = odom_msg.twist.twist.linear.x
     
     def preprocess_map(self, map_msg):
         """
@@ -117,24 +71,27 @@ class PathGenerator:
         Shouldn't we use /gt_pose messages to determine the inital pose of the robot, or can we assume it to always be at (0,0)?
         """
 
+        # TODO: Calculate shortest path without downscaling the map
         self.map_width = int(np.ceil(map_msg.info.width/self.scale))
         self.map_height = int(np.ceil(map_msg.info.height/self.scale))
         self.map_res = map_msg.info.resolution*self.scale
         
         map_data = np.array(map_msg.data).reshape((map_msg.info.width, map_msg.info.height)).T
         map_data = skimage.measure.block_reduce(map_data, (self.scale,self.scale), np.min)
-        # map_data = np.rot90(np.flip(map_data, 0), 1)
+
         # Set unknown values to be occupied
         map_data[map_data == - 1] = 100
         map_binary = (map_data < self.occupancy_treshhold).astype(int)
 
-        # TODO: Maybe replace hardcoded initial position?
+        # TODO: Maybe replace hardcoded initial position? /gt_pose?
         starting_point = self.convert_position_to_grid_cell(0, 0)
         print(starting_point)
 
         return map_binary, starting_point
     
     def calculate_finish_line(self, driveable_area, starting_point):
+        # TODO: Currently, we assume the car is always facing straight forward at the start
+        # Maybe adjust to calculate the finish line perpendicular to the inital orientation of the car?
         x = starting_point[0]
         y = starting_point[1]
         left_end = y
@@ -171,6 +128,8 @@ class PathGenerator:
         return eroded_map
     
     def breadth_first_search(self, map_msg, safe_area, finish_line_start, finish_line_end):
+        # Currently implemented with a 4-neighborhood
+
         x = finish_line_start[0]
         visited = []
         finish_line = [(x,y) for y in range(finish_line_start[1], finish_line_end[1] + 1)]
@@ -192,6 +151,7 @@ class PathGenerator:
                 rospy.loginfo("Shortest path reached finish line!")
                 return previous_node, (x,y)
 
+            # Not 100% sure if this always works
             if (x+1,y) in finish_line:
                 new_x = x - 1
                 new_y = y
@@ -230,8 +190,6 @@ class PathGenerator:
                 self.path.poses.append(cur_pose)
         
         print(len(self.path.poses))
-
-            
 
     
     def convert_position_to_grid_cell(self, pos_x, pos_y):
