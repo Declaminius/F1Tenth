@@ -36,6 +36,9 @@ class PathGenerator:
         self.velocity = 0
 
         # Controller parameters
+        self.sparsity = 5
+        self.scale = 3
+        self.occupancy_treshhold = 10
         self.driving_speed = 0
         self.steering_angle = 0
     
@@ -106,7 +109,7 @@ class PathGenerator:
     def odom_callback(self, odom_msg):
         self.velocity = odom_msg.twist.twist.linear.x
     
-    def preprocess_map(self, map_msg, occupancy_treshhold = 10, scale = 3):
+    def preprocess_map(self, map_msg):
         """
         Converts the map_msg.data array into a 2D numpy array.
         Current assumption: The map is centered at (0,0)
@@ -114,16 +117,16 @@ class PathGenerator:
         Shouldn't we use /gt_pose messages to determine the inital pose of the robot, or can we assume it to always be at (0,0)?
         """
 
-        self.map_width = int(np.ceil(map_msg.info.width/scale))
-        self.map_height = int(np.ceil(map_msg.info.height/scale))
-        self.map_res = map_msg.info.resolution*scale
+        self.map_width = int(np.ceil(map_msg.info.width/self.scale))
+        self.map_height = int(np.ceil(map_msg.info.height/self.scale))
+        self.map_res = map_msg.info.resolution*self.scale
         
         map_data = np.array(map_msg.data).reshape((map_msg.info.width, map_msg.info.height)).T
-        map_data = skimage.measure.block_reduce(map_data, (scale,scale), np.min)
+        map_data = skimage.measure.block_reduce(map_data, (self.scale,self.scale), np.min)
         # map_data = np.rot90(np.flip(map_data, 0), 1)
         # Set unknown values to be occupied
         map_data[map_data == - 1] = 100
-        map_binary = (map_data < occupancy_treshhold).astype(int)
+        map_binary = (map_data < self.occupancy_treshhold).astype(int)
 
         # TODO: Maybe replace hardcoded initial position?
         starting_point = self.convert_position_to_grid_cell(0, 0)
@@ -148,7 +151,9 @@ class PathGenerator:
 
     
     def erode_map(self, driveable_area):
-        skimage.io.imsave('~/F1Tenth/maps/driveable_area.png', skimage.img_as_ubyte(255*driveable_area), check_contrast=False)
+        map_image = np.flip(np.flip(driveable_area, 1), 0)
+
+        skimage.io.imsave('~/F1Tenth/maps/driveable_area.png', skimage.img_as_ubyte(255*map_image), check_contrast=False)
 
         radius = 3
 
@@ -165,16 +170,13 @@ class PathGenerator:
 
         return eroded_map
     
-    def shortest_path(self, map_msg, safe_area, finish_line_start, finish_line_end):
-        "Use a simple breadth-first search"
+    def breadth_first_search(self, map_msg, safe_area, finish_line_start, finish_line_end):
         x = finish_line_start[0]
         visited = []
         finish_line = [(x,y) for y in range(finish_line_start[1], finish_line_end[1] + 1)]
         queue = [(x-1,y) for y in range(finish_line_start[1], finish_line_end[1] + 1)]
         previous_node = {(x-1,y): (x,y) for y in range(finish_line_start[1], finish_line_end[1] + 1)}
         path = []
-        pos_x, pos_y = self.convert_grid_cell_to_position(finish_line_start[0], finish_line_start[1])
-        self.visualize_point(pos_x, pos_y)
 
         i = 0
         while queue != []:
@@ -187,9 +189,8 @@ class PathGenerator:
                 pos_x, pos_y = self.convert_grid_cell_to_position(x,y)
                 self.visualize_point(pos_x,pos_y)
             if (x,y) in finish_line:
-                path.append((x,y))
-                print("Finish line")
-                break
+                rospy.loginfo("Shortest path reached finish line!")
+                return previous_node, (x,y)
 
             if (x+1,y) in finish_line:
                 new_x = x - 1
@@ -204,17 +205,31 @@ class PathGenerator:
                         queue.append((new_x,new_y))
                         visited.append((new_x,new_y))
                         previous_node[(new_x,new_y)] = (x,y)
+    
+    def shortest_path(self, map_msg, safe_area, finish_line_start, finish_line_end):
+        "Use a simple breadth-first search"
+
+        previous_node, start_point = self.breadth_first_search(map_msg, safe_area, finish_line_start, finish_line_end)
+        x = finish_line_start[0]
+        finish_line = [(x,y) for y in range(finish_line_start[1], finish_line_end[1] + 1)]
         
-        node = previous_node[path[0]]
+        node = previous_node[start_point]
+        i = 0
         while node not in finish_line:
+            i += 1
+            print(i)
             node = previous_node[node]
-            pos_x, pos_y = self.convert_grid_cell_to_position(node[0],node[1])
-            cur_pose = PoseStamped()
-            cur_pose.header = map_msg.header
-            cur_pose.pose.position.x = pos_x
-            cur_pose.pose.position.y = pos_y
-            cur_pose.pose.position.z = 0
-            self.path.poses.append(cur_pose)
+
+            if (i % self.sparsity) == 0:
+                pos_x, pos_y = self.convert_grid_cell_to_position(node[0],node[1])
+                cur_pose = PoseStamped()
+                cur_pose.header = map_msg.header
+                cur_pose.pose.position.x = pos_x
+                cur_pose.pose.position.y = pos_y
+                cur_pose.pose.position.z = 0
+                self.path.poses.append(cur_pose)
+        
+        print(len(self.path.poses))
 
             
 
@@ -287,6 +302,7 @@ class PathGenerator:
         shortest_path = self.shortest_path(map_msg, safe_area, finish_line_start, finish_line_end)
         toc = time.time()
         rospy.loginfo(f"Time for shortest path: {toc - tic}")
+
 
         
         self.path.header = map_msg.header
