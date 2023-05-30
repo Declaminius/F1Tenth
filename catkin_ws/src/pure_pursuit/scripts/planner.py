@@ -111,7 +111,7 @@ class PathGenerator:
 
         skimage.io.imsave('~/Documents/F1Tenth/maps/driveable_area.png', skimage.img_as_ubyte(255*map_image), check_contrast=False)
 
-        radius = 6
+        radius = 12
 
         tic = time.time()
         eroded_map = skimage.morphology.binary_erosion(driveable_area, footprint = np.ones((2*radius,2*radius)))
