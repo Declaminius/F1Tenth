@@ -1,22 +1,28 @@
 #!/usr/bin/env python3
 import sys
 import numpy as np
-import copy
 import skimage
 import time
-import networkx
 import queue
+from collections import defaultdict
+import heapq as heap
 from functools import wraps
+
+from bspline import approximate_b_spline_path
+from rviz_functions import visualize_point
+
 
 import rospy
 from sensor_msgs.msg import LaserScan
 from ackermann_msgs.msg import AckermannDriveStamped
 from nav_msgs.msg import Odometry, OccupancyGrid, Path
-from visualization_msgs.msg import Marker
 from geometry_msgs.msg import PoseStamped
+from visualization_msgs.msg import Marker
+
 
 
 def timing(f):
+    "A simple decorator for timing functions"
     @wraps(f)
     def wrap(*args, **kw):
         ts = time.time()
@@ -43,6 +49,7 @@ class PathGenerator:
         self.drive_pub = rospy.Publisher("/nav", AckermannDriveStamped, queue_size = 1000)
         self.marker_pub = rospy.Publisher("/visualization_marker", Marker, queue_size = 1000)
         self.path_pub = rospy.Publisher('/path', Path, latch=True, queue_size=1)
+        self.path2_pub = rospy.Publisher('/path2', Path, latch=True, queue_size=1)
 
 
         # Controller parameters
@@ -51,26 +58,6 @@ class PathGenerator:
         self.safety_margin = 0.5 # in meters
         self.occupancy_treshhold = 10 # pixel below this treshold (in percent) we consider free space
     
-    def visualize_point(self,x,y,frame='map',r=0.0,g=1.0,b=0.0):
-        marker = Marker()
-        marker.header.frame_id = frame
-        marker.header.stamp = rospy.Time.now()
-        marker.id = 150
-        marker.type = marker.SPHERE
-        marker.action = marker.ADD
-        marker.scale.x = 1
-        marker.scale.y = 1
-        marker.scale.z = 1
-        marker.color.a = 1.0
-        marker.color.r = r
-        marker.color.g = g
-        marker.color.b = b
-        marker.pose.orientation.w = 1.0
-        marker.pose.position.x = x
-        marker.pose.position.y = y
-        marker.pose.position.z = 0
-        marker.lifetime = rospy.Duration(0.25)
-        self.marker_pub.publish(marker)
 
     
     def preprocess_map(self, map_msg):
@@ -115,83 +102,105 @@ class PathGenerator:
         rospy.loginfo(f"{right_end=}, {left_end=}")
         return (x, left_end), (x, right_end)
 
+    def save_map_image(self, map, path):
+        map_image = np.flip(np.flip(map, 1), 0)
+
+        skimage.io.imsave(path, skimage.img_as_ubyte(255*map_image), check_contrast=False)
+        rospy.loginfo(f"Saved map image to {path}")
     
     def erode_map(self, driveable_area):
-        map_image = np.flip(np.flip(driveable_area, 1), 0)
-
-        skimage.io.imsave('~/F1Tenth/maps/driveable_area.png', skimage.img_as_ubyte(255*map_image), check_contrast=False)
-        rospy.loginfo("Saved map of driveable area to ~/Documents/F1Tenth/maps/driveable_area.png")
-
         radius = int(self.safety_margin/self.map_res)
 
         tic = time.time()
         eroded_map = skimage.morphology.binary_erosion(driveable_area, footprint = np.ones((2*radius,2*radius)))
         toc = time.time()
-
         rospy.loginfo(f"Time for binary erosion: {toc - tic}")
 
-        map_image = np.flip(np.flip(eroded_map, 1), 0)
-
-        skimage.io.imsave('~/F1Tenth/maps/safe_area.png', skimage.img_as_ubyte(map_image), check_contrast=False)
-        rospy.loginfo("Saved map of save area to ~/Documents/F1Tenth/maps/save_area.png")
+        self.save_map_image(driveable_area, '~/F1Tenth/maps/driveable_area.png')
+        self.save_map_image(eroded_map, '~/F1Tenth/maps/eroded_map.png')
 
         return eroded_map
     
     @timing
-    def breadth_first_search(self, map_msg, safe_area, finish_line_start, finish_line_end):
-        # Currently implemented with a 4-neighborhood
+    def dijkstra(self, map_msg, safe_area, finish_line_start, finish_line_end):
+        # Currently implemented with a 4-neighborhood - since Dijkstra is equivalent to breadth-first search
+        # for uniform weights
+        # Currently expects the finishline to always be horizontal
+        # TODO: Make this into proper Dijkstra with an 8-neighborhood with diagonal weights of sqrt(2)
+
+        # possible neighborhoods encoded in (delta_x, delta_y, weight) format
+        neighborhood4 = [(0,1,1), (0,-1,1), (1,0,1), (-1,0,1)]
+        neighborhood8 = [(0,1,1), (0,-1,1), (1,0,1), (-1,0,1), (1,1,np.sqrt(2)), (1,-1,np.sqrt(2)), (-1,1, np.sqrt(2)), (-1,1, np.sqrt(2))]
 
         x = finish_line_start[0]
         finish_line = [(x,y) for y in range(finish_line_start[1], finish_line_end[1] + 1)]
 
-        my_queue = queue.Queue()
         visited = np.array(safe_area)
         visited.fill(False)
-        one_before_finish_line = [(x-1,y) for y in range(finish_line_start[1], finish_line_end[1] + 1)]
 
-        for el in one_before_finish_line:
-            my_queue.put(el)
-            visited[el] = True
+        priority_queue = []
 
-        previous_node = {(x-1,y): (x,y) for y in range(finish_line_start[1], finish_line_end[1] + 1)}
+        nodeCosts = defaultdict(lambda: float('inf'))
+        for cell in finish_line:
+            nodeCosts[cell] = 0
+            heap.heappush(priority_queue, (0, cell))
+
+        previous_node = {}
 
         i = 0
-        while not my_queue.empty():
+        while priority_queue:
             i += 1
-            x,y = my_queue.get()
+            _, (x,y) = heap.heappop(priority_queue)
             visited[x,y] = True
 
+            # Funky visualization of where the algorithm is currently exploring
             if i % 100 == 0:
                 pos_x, pos_y = self.convert_grid_cell_to_position(x,y)
-                self.visualize_point(pos_x,pos_y)
-            if (x,y) == self.starting_point:
-                return previous_node
+                marker = visualize_point(pos_x,pos_y)
+                self.marker_pub.publish(marker)
 
-            # Not 100% sure if this always works
-            if (x+1,y) in finish_line:
+            # Force the search to go down at the start in order to complete a whole lap
+            if (x,y) in finish_line:
                 new_x = x - 1
                 new_y = y
-                if safe_area[new_x, new_y] == 1 and not visited[new_x, new_y]:
-                    my_queue.put((new_x,new_y))
-                    visited[new_x, new_y] = True
-                    previous_node[(new_x,new_y)] = (x,y)
-            else:
-                for new_x, new_y in ((x+1,y), (x-1,y), (x,y+1), (x,y-1)):
-                    if safe_area[new_x, new_y] == 1 and not visited[new_x, new_y]:
-                        my_queue.put((new_x,new_y))
-                        visited[new_x, new_y] = True
+
+                if safe_area[new_x, new_y] == 1:
+                    new_costs = nodeCosts[(x,y)] + 1
+                    if new_costs < nodeCosts[(new_x,new_y)]:
                         previous_node[(new_x,new_y)] = (x,y)
+                        nodeCosts[(new_x,new_y)] = new_costs
+                        heap.heappush(priority_queue, (new_costs, (new_x,new_y)))
+            else:
+                for delta_x, delta_y, weight in neighborhood8:
+                    new_x = x + delta_x
+                    new_y = y + delta_y 
+
+                    # The loop is only completed if the start point is reached from above
+                    if (new_x,new_y) == self.starting_point and new_x == x - 1:
+                        previous_node[(new_x,new_y)] = (x,y)
+                        return previous_node, nodeCosts
+
+                    if visited[new_x, new_y]:
+                        continue
+
+                    if safe_area[new_x, new_y] == 1:
+                        new_costs = nodeCosts[(x,y)] + weight
+                        if new_costs < nodeCosts[(new_x,new_y)]:
+                            previous_node[(new_x,new_y)] = (x,y)
+                            nodeCosts[(new_x,new_y)] = new_costs
+                            heap.heappush(priority_queue, (new_costs, (new_x,new_y)))
     
     @timing
     def shortest_path(self, map_msg, safe_area, finish_line_start, finish_line_end):
-        "Use a simple breadth-first search"
+        "Use Dijkstra with a 4-neighborhood or an 8-neighborhood"
 
-        previous_node = self.breadth_first_search(map_msg, safe_area, finish_line_start, finish_line_end)
+        previous_node, nodeCosts = self.dijkstra(map_msg, safe_area, finish_line_start, finish_line_end)
         x = finish_line_start[0]
         one_before_finish_line = [(x-1,y) for y in range(finish_line_start[1], finish_line_end[1] + 1)]
 
         shortest_path = Path()
-        self.append_pose(map_msg, self.starting_point, shortest_path)
+        pos_x, pos_y = self.convert_grid_cell_to_position(self.starting_point[0],self.starting_point[1])
+        self.append_pose(map_msg, shortest_path, pos_x, pos_y)
         
         node = previous_node[self.starting_point]
         i = 0
@@ -201,12 +210,27 @@ class PathGenerator:
             node = previous_node[node]
 
             if (i % self.sparsity) == 0:
-                self.append_pose(map_msg, node, shortest_path)
+                pos_x, pos_y = self.convert_grid_cell_to_position(node[0],node[1])
+                self.append_pose(map_msg, shortest_path, pos_x, pos_y)
         
         return shortest_path
     
-    def append_pose(self, map_msg, node, path):
-        pos_x, pos_y = self.convert_grid_cell_to_position(node[0],node[1])
+    @timing
+    def optimize_raceline(self, map_msg, shortest_path):
+        x_array = np.array([pose.pose.position.x for pose in shortest_path.poses])
+        y_array = np.array([pose.pose.position.y for pose in shortest_path.poses])
+
+        rax, ray, heading, curvature = approximate_b_spline_path(
+        x_array, y_array, len(x_array), degree = 3, s=0.5)
+
+        optimized_path = Path()
+
+        for (x,y) in zip(rax,ray):
+            self.append_pose(map_msg, optimized_path, x, y)
+
+        return optimized_path
+    
+    def append_pose(self, map_msg, path, pos_x, pos_y):
         cur_pose = PoseStamped()
         cur_pose.header = map_msg.header
         cur_pose.pose.position.x = pos_x
@@ -216,7 +240,7 @@ class PathGenerator:
 
     
     def convert_position_to_grid_cell(self, pos_x, pos_y):
-        "Takes a position in meters and converts it to the correspdonging grid cell in the OccupancyGrid"
+        "Takes a position in meters and converts it to the corresponding grid cell in the OccupancyGrid"
 
         index_x = int(pos_x/self.map_res + self.map_height/2)
         index_y = int(pos_y/self.map_res + self.map_width/2)
@@ -224,6 +248,7 @@ class PathGenerator:
         return index_x, index_y
     
     def convert_grid_cell_to_position(self, index_x, index_y):
+        "Takes a tuple (i,j) of indices on the grid and converts it to its coordinates in meters."
         
         pos_x = (index_x - self.map_height/2)*self.map_res
         pos_y = (index_y - self.map_width/2)*self.map_res
@@ -274,8 +299,13 @@ class PathGenerator:
         shortest_path = self.shortest_path(map_msg, safe_area, finish_line_start, finish_line_end)
         rospy.loginfo(f"Length of shortest path: {self.map_res * len(shortest_path.poses)} meters")
 
+        optimized_path = self.optimize_raceline(map_msg, shortest_path)
+
         shortest_path.header = map_msg.header
         self.path_pub.publish(shortest_path)
+
+        optimized_path.header = map_msg.header
+        self.path2_pub.publish(optimized_path)
 
 
 
