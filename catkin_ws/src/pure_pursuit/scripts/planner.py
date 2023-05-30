@@ -6,6 +6,7 @@ import skimage
 import time
 import networkx
 import queue
+from functools import wraps
 
 import rospy
 from sensor_msgs.msg import LaserScan
@@ -13,6 +14,18 @@ from ackermann_msgs.msg import AckermannDriveStamped
 from nav_msgs.msg import Odometry, OccupancyGrid, Path
 from visualization_msgs.msg import Marker
 from geometry_msgs.msg import PoseStamped
+
+
+def timing(f):
+    @wraps(f)
+    def wrap(*args, **kw):
+        ts = time.time()
+        result = f(*args, **kw)
+        te = time.time()
+        rospy.loginfo('func:%r took: %2.4f sec' % \
+          (f.__name__, te-ts))
+        return result
+    return wrap
 
 
 
@@ -29,16 +42,14 @@ class PathGenerator:
 
         self.drive_pub = rospy.Publisher("/nav", AckermannDriveStamped, queue_size = 1000)
         self.marker_pub = rospy.Publisher("/visualization_marker", Marker, queue_size = 1000)
-        self.path_pub = rospy.Publisher('/path', Path, latch=True, queue_size=10)
+        self.path_pub = rospy.Publisher('/path', Path, latch=True, queue_size=1)
 
 
         # Controller parameters
-        self.sparsity = 5
-        self.scale = 1
-        self.occupancy_treshhold = 10
-        self.driving_speed = 0
-        self.steering_angle = 0
-
+        self.sparsity = 5 
+        self.scale = 1 # by which factor to downscale the map resolution before performing the path generation
+        self.safety_margin = 0.5 # in meters
+        self.occupancy_treshhold = 10 # pixel below this treshold (in percent) we consider free space
     
     def visualize_point(self,x,y,frame='map',r=0.0,g=1.0,b=0.0):
         marker = Marker()
@@ -65,7 +76,7 @@ class PathGenerator:
     def preprocess_map(self, map_msg):
         """
         Converts the map_msg.data array into a 2D numpy array.
-        Current assumption: The map is centered at (0,0)
+        Current assumption: The map is centered at (0,0), which is also the robot's initial pose.
         WARNING: map_msg.info.origin represents the lower-right pixel of the map, not the starting position of the robot!
         Shouldn't we use /gt_pose messages to determine the inital pose of the robot, or can we assume it to always be at (0,0)?
         """
@@ -83,16 +94,15 @@ class PathGenerator:
         map_binary = (map_data < self.occupancy_treshhold).astype(int)
 
         # TODO: Maybe replace hardcoded initial position? /gt_pose?
-        starting_point = self.convert_position_to_grid_cell(0, 0)
-        print(starting_point)
+        self.starting_point = self.convert_position_to_grid_cell(0, 0)
 
-        return map_binary, starting_point
+        return map_binary
     
-    def calculate_finish_line(self, driveable_area, starting_point):
+    def calculate_finish_line(self, driveable_area):
         # TODO: Currently, we assume the car is always facing straight forward at the start
         # Maybe adjust to calculate the finish line perpendicular to the inital orientation of the car?
-        x = starting_point[0]
-        y = starting_point[1]
+        x = self.starting_point[0]
+        y = self.starting_point[1]
         left_end = y
         right_end = y
 
@@ -109,9 +119,10 @@ class PathGenerator:
     def erode_map(self, driveable_area):
         map_image = np.flip(np.flip(driveable_area, 1), 0)
 
-        skimage.io.imsave('~/Documents/F1Tenth/maps/driveable_area.png', skimage.img_as_ubyte(255*map_image), check_contrast=False)
+        skimage.io.imsave('~/F1Tenth/maps/driveable_area.png', skimage.img_as_ubyte(255*map_image), check_contrast=False)
+        rospy.loginfo("Saved map of driveable area to ~/Documents/F1Tenth/maps/driveable_area.png")
 
-        radius = 12
+        radius = int(self.safety_margin/self.map_res)
 
         tic = time.time()
         eroded_map = skimage.morphology.binary_erosion(driveable_area, footprint = np.ones((2*radius,2*radius)))
@@ -121,28 +132,28 @@ class PathGenerator:
 
         map_image = np.flip(np.flip(eroded_map, 1), 0)
 
-        skimage.io.imsave('~/Documents/F1Tenth/maps/driveable_area.png', skimage.img_as_ubyte(map_image), check_contrast=False)
-        print("Saved map")
+        skimage.io.imsave('~/F1Tenth/maps/safe_area.png', skimage.img_as_ubyte(map_image), check_contrast=False)
+        rospy.loginfo("Saved map of save area to ~/Documents/F1Tenth/maps/save_area.png")
 
         return eroded_map
     
+    @timing
     def breadth_first_search(self, map_msg, safe_area, finish_line_start, finish_line_end):
         # Currently implemented with a 4-neighborhood
 
         x = finish_line_start[0]
-        visited = []
         finish_line = [(x,y) for y in range(finish_line_start[1], finish_line_end[1] + 1)]
-        my_queue = queue.Queue()
-        one_bef_finish_line = [(x-1,y) for y in range(finish_line_start[1], finish_line_end[1] + 1)]
-        for el in one_bef_finish_line:
-            my_queue.put(el)
-        previous_node = {(x-1,y): (x,y) for y in range(finish_line_start[1], finish_line_end[1] + 1)}
-        path = []
 
+        my_queue = queue.Queue()
         visited = np.array(safe_area)
         visited.fill(False)
-        for el in one_bef_finish_line:
+        one_before_finish_line = [(x-1,y) for y in range(finish_line_start[1], finish_line_end[1] + 1)]
+
+        for el in one_before_finish_line:
+            my_queue.put(el)
             visited[el] = True
+
+        previous_node = {(x-1,y): (x,y) for y in range(finish_line_start[1], finish_line_end[1] + 1)}
 
         i = 0
         while not my_queue.empty():
@@ -151,12 +162,10 @@ class PathGenerator:
             visited[x,y] = True
 
             if i % 100 == 0:
-                print(i)
                 pos_x, pos_y = self.convert_grid_cell_to_position(x,y)
                 self.visualize_point(pos_x,pos_y)
-            if (x,y) in finish_line:
-                rospy.loginfo("Shortest path reached finish line!")
-                return previous_node, (x,y)
+            if (x,y) == self.starting_point:
+                return previous_node
 
             # Not 100% sure if this always works
             if (x+1,y) in finish_line:
@@ -173,30 +182,37 @@ class PathGenerator:
                         visited[new_x, new_y] = True
                         previous_node[(new_x,new_y)] = (x,y)
     
+    @timing
     def shortest_path(self, map_msg, safe_area, finish_line_start, finish_line_end):
         "Use a simple breadth-first search"
 
-        previous_node, start_point = self.breadth_first_search(map_msg, safe_area, finish_line_start, finish_line_end)
+        previous_node = self.breadth_first_search(map_msg, safe_area, finish_line_start, finish_line_end)
         x = finish_line_start[0]
-        finish_line = [(x,y) for y in range(finish_line_start[1], finish_line_end[1] + 1)]
+        one_before_finish_line = [(x-1,y) for y in range(finish_line_start[1], finish_line_end[1] + 1)]
+
+        shortest_path = Path()
+        self.append_pose(map_msg, self.starting_point, shortest_path)
         
-        node = previous_node[start_point]
+        node = previous_node[self.starting_point]
         i = 0
-        while node not in finish_line:
+        # the shortest path can move on the finish line at the start
+        while node not in one_before_finish_line:
             i += 1
-            print(i)
             node = previous_node[node]
 
             if (i % self.sparsity) == 0:
-                pos_x, pos_y = self.convert_grid_cell_to_position(node[0],node[1])
-                cur_pose = PoseStamped()
-                cur_pose.header = map_msg.header
-                cur_pose.pose.position.x = pos_x
-                cur_pose.pose.position.y = pos_y
-                cur_pose.pose.position.z = 0
-                self.path.poses.append(cur_pose)
+                self.append_pose(map_msg, node, shortest_path)
         
-        print(len(self.path.poses))
+        return shortest_path
+    
+    def append_pose(self, map_msg, node, path):
+        pos_x, pos_y = self.convert_grid_cell_to_position(node[0],node[1])
+        cur_pose = PoseStamped()
+        cur_pose.header = map_msg.header
+        cur_pose.pose.position.x = pos_x
+        cur_pose.pose.position.y = pos_y
+        cur_pose.pose.position.z = 0
+        path.poses.append(cur_pose)
 
     
     def convert_position_to_grid_cell(self, pos_x, pos_y):
@@ -215,7 +231,7 @@ class PathGenerator:
         return pos_x, pos_y
 
 
-
+    @timing
     def fill4(self, map_binary, x, y):
         """Source: https://wikipedia.org/wiki/Floodfill
         0 is occupied
@@ -245,33 +261,21 @@ class PathGenerator:
         rospy.loginfo(f"Map Header: {map_msg.header}")
         rospy.loginfo(f"Map info: {map_msg.info}")
 
-        self.path = Path()
-
-        map_binary, starting_point = self.preprocess_map(map_msg)
+        map_binary = self.preprocess_map(map_msg)
         rospy.loginfo(f"number of free grid cells: {np.sum(map_binary)}")
 
-        tic = time.time()
-        driveable_area = self.fill4(map_binary, starting_point[0], starting_point[1])
-        toc = time.time()
-        rospy.loginfo(f"Time for FloodFill: {toc - tic}")
+        driveable_area = self.fill4(map_binary, self.starting_point[0], self.starting_point[1])
         rospy.loginfo(f"number of driveable grid cells: {np.sum(driveable_area)}")
 
-    
-        finish_line_start, finish_line_end = self.calculate_finish_line(driveable_area, starting_point)
-
-        
+        finish_line_start, finish_line_end = self.calculate_finish_line(driveable_area)    
         safe_area = self.erode_map(driveable_area)
-
         rospy.loginfo(f"number of safe grid cells: {np.sum(safe_area)}")
-        tic = time.time()
+
         shortest_path = self.shortest_path(map_msg, safe_area, finish_line_start, finish_line_end)
-        toc = time.time()
-        rospy.loginfo(f"Time for shortest path: {toc - tic}")
+        rospy.loginfo(f"Length of shortest path: {self.map_res * len(shortest_path.poses)} meters")
 
-
-        
-        self.path.header = map_msg.header
-        self.path_pub.publish(self.path)
+        shortest_path.header = map_msg.header
+        self.path_pub.publish(shortest_path)
 
 
 
