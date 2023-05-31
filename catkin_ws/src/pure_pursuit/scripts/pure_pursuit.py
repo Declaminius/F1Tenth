@@ -40,6 +40,8 @@ class pure_pursuit:
         path_topic = '/path'
 
         self.path = Path() 
+        self.actual_path = Path()
+        self.actual_path.header.frame_id="map"
 
         self.ground_pose = Pose()
         self.L = 2
@@ -48,6 +50,7 @@ class pure_pursuit:
         self.odom_stamp = rospy.Time()
         self.velocity = 0.
 
+        self.start_pose = (0, 0)
         self.goal_pose = Point()
 
         self.ttc_array = []
@@ -74,6 +77,7 @@ class pure_pursuit:
 
         self.drive_pub = rospy.Publisher(drive_topic, AckermannDriveStamped, queue_size=1)
         self.marker_pub = rospy.Publisher("/marker_goal", Marker, queue_size = 1000)
+        self.actual_path_pub = rospy.Publisher("/actual_path", Path, latch=True, queue_size=1)
 
     def myScanIndex(self, scan_msg, angle):
         # expects an angle in degrees and outputs the respective index in the scan_ranges array.
@@ -144,6 +148,7 @@ class pure_pursuit:
         start_index = i - 1
         start_pose = poses[start_index]
         self.prev_ground_path_index = start_index
+        self.start_pose = start_pose
         # start_index = tree.query((self.ground_pose.position.x, self.ground_pose.position.y))[1]
         # start_pose = poses[start_index
 
@@ -230,13 +235,19 @@ class pure_pursuit:
         # else:
         #     speed = min(7, max(0.5, 7 * (1 - math.exp(-0.75*self.ttc))))
 
+        alpha = np.arcsin(self.goal_pose.y / self.L)
+        b = math.sqrt(pow(self.start_pose[0] - self.ground_pose.position.x, 2) + pow(self.start_pose[1] - self.ground_pose.position.y, 2))
+        dt = b * math.cos(alpha)
+
+        path_error = dt + self.L * math.sin(alpha)
+
         ttc = self.ttc_array[self.myScanIndex(self.scan_msg, math.degrees(np.arcsin(self.goal_pose.y / self.L)))]
         speed = min(7, max(0.5, 7 * (1 - math.exp(-0.5*ttc))))
         
         # clip speed by steering angle
         speed /= 8. * pow(self.steering_angle, 2) + 1
 
-        speed *= 1 / (10. * pow(self.path_error, 2))  + 1 if self.path_error > sys.float_info.min else 1.
+        speed *= 1 / (10. * pow(path_error, 2))  + 1 if self.path_error > sys.float_info.min else 1.
 
         # rospy.loginfo_throttle(1, "path error: " + str(self.path_error))
         rospy.loginfo_throttle(1, "velocity: " + str(self.velocity))
