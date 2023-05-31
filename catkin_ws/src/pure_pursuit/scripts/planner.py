@@ -98,7 +98,7 @@ class PathGenerator:
         while driveable_area[x, left_end] == 1:
             left_end -= 1  
 
-        rospy.loginfo(f"{right_end=}, {left_end=}")
+        # rospy.loginfo(f"{right_end=}, {left_end=}")
         return (x, left_end), (x, right_end)
 
     def save_map_image(self, map, path):

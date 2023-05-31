@@ -71,6 +71,7 @@
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>visualization_msgs</exec_depend>
   <exec_depend>python3-scipy</exec_depend>
+  <!-- <exec_depend>python-skimage</exec_depend> -->
 
 
   <!-- The export tag contains other, unspecified, tags -->
