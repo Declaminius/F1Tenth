@@ -230,9 +230,7 @@ class pure_pursuit:
         # else:
         #     speed = 0.25
         
-<<<<<<< HEAD
-        # return speed
-        return 1
+        return speed
     
     def append_pose(self, pos_x, pos_y):
         cur_pose = PoseStamped()
@@ -242,10 +240,6 @@ class pure_pursuit:
         cur_pose.pose.position.y = pos_y
         cur_pose.pose.position.z = 0
         self.actual_path.poses.append(cur_pose)
-=======
-        return speed
-        # return 0.5
->>>>>>> 62c06f90b7172ffb965d3ca36c61efea2abed17c
 
 def main(args):
     rospy.init_node("pure_pursuit_node", anonymous=True)
