@@ -39,12 +39,7 @@ class pure_pursuit:
         odom_topic = '/odom'
         path_topic = '/path'
 
-        self.path_pub = rospy.Subscriber(path_topic, Path, self.path_callback, queue_size=1)
-        self.odom_sub = rospy.Subscriber(odom_topic, Odometry, self.odom_callback, queue_size=1)
-        self.lidar_sub = rospy.Subscriber(lidarscan_topic, LaserScan, self.lidar_callback, queue_size=1)
-
-        self.drive_pub = rospy.Publisher(drive_topic, AckermannDriveStamped, queue_size=1)
-        self.marker_pub = rospy.Publisher("/marker_goal", Marker, queue_size = 1000)
+        self.path = Path() 
 
         self.ground_pose = Pose()
         self.L = 2
@@ -53,6 +48,9 @@ class pure_pursuit:
         self.odom_stamp = rospy.Time()
         self.velocity = 0.
 
+        self.goal_pose = Point()
+
+        self.ttc_array = []
         self.ttc = 1000
         self.ttc_front = 1000
         self.speed = 0.
@@ -61,12 +59,19 @@ class pure_pursuit:
         self.scan_msg = LaserScan()
 
 
-        self.path = Path() 
+        self.path_error = 0.
 
         self.prev_ground_path_index = 0
 
         self.tf_buffer = tf2_ros.Buffer(rospy.Duration(100.0))  # tf buffer length
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
+
+        self.path_pub = rospy.Subscriber(path_topic, Path, self.path_callback, queue_size=1)
+        self.odom_sub = rospy.Subscriber(odom_topic, Odometry, self.odom_callback, queue_size=1)
+        self.lidar_sub = rospy.Subscriber(lidarscan_topic, LaserScan, self.lidar_callback, queue_size=1)
+
+        self.drive_pub = rospy.Publisher(drive_topic, AckermannDriveStamped, queue_size=1)
+        self.marker_pub = rospy.Publisher("/marker_goal", Marker, queue_size = 1000)
 
     def myScanIndex(self, scan_msg, angle):
         # expects an angle in degrees and outputs the respective index in the scan_ranges array.
@@ -93,10 +98,10 @@ class pure_pursuit:
         scan_angles = np.linspace(data.angle_min, data.angle_max, len(scan_ranges))
         projected_speed_array = self.velocity * np.cos(scan_angles)
         projected_speed_array[projected_speed_array < 0.1] = 0.1
-        ttc_array = (np.maximum(0,scan_ranges - 0.3)) / projected_speed_array
-        self.ttc_index = np.argmin(ttc_array)
-        self.ttc = ttc_array[self.ttc_index]
-        self.ttc_front = ttc_array[self.myScanIndex(data, math.degrees(self.steering_angle))]
+        self.ttc_array = (np.maximum(0,scan_ranges - 0.3)) / projected_speed_array
+        self.ttc_index = np.argmin(self.ttc_array)
+        self.ttc = self.ttc_array[self.ttc_index]
+        self.ttc_front = self.ttc_array[self.myScanIndex(data, math.degrees(self.steering_angle))]
 
     def odom_callback(self, data):
         """ Process each position update using the Pure Pursuit algorithm & publish an AckermannDriveStamped Message
@@ -106,11 +111,14 @@ class pure_pursuit:
         self.odom_stamp = data.header.stamp
         self.velocity = data.twist.twist.linear.x
 
+        if self.velocity < sys.float_info.min:
+            self.prev_ground_path_index = 0
+
         # self.L = 8. * self.velocity if self.velocity > sys.float_info.min else 2.
         # self.L  = 2
-        self.L = 0.59259259259259 * self.velocity + 1.8518518518519 if self.velocity > sys.float_info.min else 2.
+        # self.L = 0.59259259259259 * self.velocity + 1.8518518518519 if self.velocity > sys.float_info.min else 2.
+        self.L = 0.81481481481482 * self.velocity + 0.2962962962963 if self.velocity > sys.float_info.min else 2.
         self.L *= self.L_factor
-        rospy.loginfo_throttle(1, "velocity: " + str(self.velocity))
 
         poses_stamped = self.path.poses
         if len(poses_stamped) == 0:
@@ -152,6 +160,11 @@ class pure_pursuit:
         # transform goal point to vehicle coordinate frame
         transform = self.tf_buffer.lookup_transform("base_link", self.path.header.frame_id, rospy.Time())
         goal_transformed = tf2_geometry_msgs.do_transform_point(PointWrapper(Point(goal[0], goal[1], 1)), transform).point
+
+        self.goal_pose = goal_transformed
+
+        self.path_error = goal_transformed.y
+
         curvature = 2 * goal_transformed.y / pow(self.L, 2)
         R = 1 / curvature
 
@@ -162,8 +175,6 @@ class pure_pursuit:
 
         self.speed = self.compute_speed()
         
-        rospy.loginfo_throttle(1, "goal_transformed.x: " + str(goal_transformed.y))
-
         self.publish_drive(self.speed, self.steering_angle)
         self.visualize_point(goal[0], goal[1])
     
@@ -202,14 +213,22 @@ class pure_pursuit:
 
     def compute_speed(self):
         # choose front beam ttc if minimum ttc is not in fov [-45, 45]
-        if not -45 < math.degrees(self.myScanAngle(self.scan_msg, self.ttc_index)) < 45:
-            # speed = 5 * ttc_array[self.myScanIndex(scan_msg, math.degrees(self.steering_angle))]
-            speed = min(7, max(0.5, 10 * (1 - math.exp(-0.5*self.ttc_front))))
-        else:
-            speed = min(7, max(0.5, 10 * (1 - math.exp(-0.75*self.ttc))))
+        # if not -45 < math.degrees(self.myScanAngle(self.scan_msg, self.ttc_index)) < 45:
+        #     # speed = 5 * ttc_array[self.myScanIndex(scan_msg, math.degrees(self.steering_angle))]
+        #     speed = min(7, max(0.5, 7 * (1 - math.exp(-0.5*self.ttc_front))))
+        # else:
+        #     speed = min(7, max(0.5, 7 * (1 - math.exp(-0.75*self.ttc))))
+
+        ttc = self.ttc_array[self.myScanIndex(self.scan_msg, math.degrees(np.arcsin(self.goal_pose.y / self.L)))]
+        speed = min(7, max(0.5, 7 * (1 - math.exp(-0.5*ttc))))
         
         # clip speed by steering angle
-        speed /= 6. * pow(self.steering_angle, 2) + 1
+        speed /= 8. * pow(self.steering_angle, 2) + 1
+
+        speed *= 1 / (10. * pow(self.path_error, 2))  + 1 if self.path_error > sys.float_info.min else 1.
+
+        # rospy.loginfo_throttle(1, "path error: " + str(self.path_error))
+        rospy.loginfo_throttle(1, "velocity: " + str(self.velocity))
 
         # clip = math.exp(3*abs(self.steering_angle) - 2)
         # diff = speed - clip
@@ -218,6 +237,7 @@ class pure_pursuit:
         # else:
         #     speed = 0.25
         
+
         return speed
         # return 0.5
 
