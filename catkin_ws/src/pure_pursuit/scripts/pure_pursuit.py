@@ -236,12 +236,14 @@ class pure_pursuit:
         #     speed = min(7, max(0.5, 7 * (1 - math.exp(-0.75*self.ttc))))
 
         alpha = np.arcsin(self.goal_pose.y / self.L)
+        rospy.loginfo_throttle(1, "alpha: " + str(alpha))
+
         b = math.sqrt(pow(self.start_pose[0] - self.ground_pose.position.x, 2) + pow(self.start_pose[1] - self.ground_pose.position.y, 2))
         dt = b * math.cos(alpha)
 
         path_error = dt + self.L * math.sin(alpha)
 
-        ttc = self.ttc_array[self.myScanIndex(self.scan_msg, math.degrees(np.arcsin(self.goal_pose.y / self.L)))]
+        ttc = self.ttc_array[self.myScanIndex(self.scan_msg, math.degrees(alpha))]
         speed = min(7, max(0.5, 7 * (1 - math.exp(-0.5*ttc))))
         
         # clip speed by steering angle
@@ -250,7 +252,7 @@ class pure_pursuit:
         speed *= 1 / (10. * pow(path_error, 2))  + 1 if self.path_error > sys.float_info.min else 1.
 
         # rospy.loginfo_throttle(1, "path error: " + str(self.path_error))
-        rospy.loginfo_throttle(1, "velocity: " + str(self.velocity))
+        # rospy.loginfo_throttle(1, "velocity: " + str(self.velocity))
 
         # clip = math.exp(3*abs(self.steering_angle) - 2)
         # diff = speed - clip
