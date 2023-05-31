@@ -3,7 +3,8 @@ catkin_ws/build_isolated/
 catkin_ws/devel/
 catkin_ws/devel_isolated/
 catkin_ws/install_isolated/
-catkin_ws/abseil-cpp
+catkin_ws/abseil-cpp/
+maps/
 *.vscode
 .rosinstall*
 bag_files/
