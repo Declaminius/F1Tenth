@@ -10,7 +10,7 @@ import tf2_ros
 import tf2_geometry_msgs
 from sensor_msgs.msg import LaserScan
 from ackermann_msgs.msg import AckermannDriveStamped, AckermannDrive
-from geometry_msgs.msg import Point, Pose
+from geometry_msgs.msg import Point, Pose, PoseStamped
 from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
 from nav_msgs.msg import OccupancyGrid
@@ -62,6 +62,8 @@ class pure_pursuit:
         self.path_error = 0.
 
         self.prev_ground_path_index = 0
+        self.timestamp = 0
+        self.n_log = 50
 
         self.tf_buffer = tf2_ros.Buffer(rospy.Duration(100.0))  # tf buffer length
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
@@ -110,6 +112,7 @@ class pure_pursuit:
         self.odom_frame = data.header.frame_id
         self.odom_stamp = data.header.stamp
         self.velocity = data.twist.twist.linear.x
+        self.timestamp += 1
 
         if self.velocity < sys.float_info.min:
             self.prev_ground_path_index = 0
@@ -129,6 +132,8 @@ class pure_pursuit:
 
         # find closest path point to current pose
         ground_pose = (self.ground_pose.position.x, self.ground_pose.position.y)
+        self.append_pose(ground_pose[0], ground_pose[1])
+
         prev_dist = np.linalg.norm(poses[self.prev_ground_path_index] - ground_pose)
         for i in range (self.prev_ground_path_index + 1, len(poses)):
         # for i in range (0, len(poses)):
@@ -175,7 +180,13 @@ class pure_pursuit:
 
         self.speed = self.compute_speed()
         
+        rospy.loginfo_throttle(1, "goal_transformed.x: " + str(goal_transformed.y))
+        if self.timestamp % self.n_log == 0:
+            self.timestamp = 0
+            rospy.loginfo(f"Ground-truth position: {ground_pose}")
+
         self.publish_drive(self.speed, self.steering_angle)
+        self.actual_path_pub.publish(self.actual_path)
         self.visualize_point(goal[0], goal[1])
     
     def path_callback(self, data):
@@ -239,7 +250,15 @@ class pure_pursuit:
         
 
         return speed
-        # return 0.5
+    
+    def append_pose(self, pos_x, pos_y):
+        cur_pose = PoseStamped()
+        cur_pose.header.stamp = rospy.Time.now()
+        cur_pose.header.frame_id = self.odom_frame
+        cur_pose.pose.position.x = pos_x
+        cur_pose.pose.position.y = pos_y
+        cur_pose.pose.position.z = 0
+        self.actual_path.poses.append(cur_pose)
 
 def main(args):
     rospy.init_node("pure_pursuit_node", anonymous=True)
