@@ -48,13 +48,17 @@ class pure_pursuit:
 
         self.ground_pose = Pose()
         self.L = 2
+        self.L_factor = 2.
         self.odom_frame = ""
         self.odom_stamp = rospy.Time()
         self.velocity = 0.
 
         self.ttc = 1000
+        self.ttc_front = 1000
         self.speed = 0.
         self.steering_angle = 0.
+
+        self.scan_msg = LaserScan()
 
 
         self.path = Path() 
@@ -77,16 +81,22 @@ class pure_pursuit:
         index = int((rad_angle - scan_msg.angle_min) / scan_msg.angle_increment)
 
         return index
+    
+    def myScanAngle(self, scan_msg, index):
+        # returns angle in radians
+
+        return scan_msg.angle_min + index * scan_msg.angle_increment
 
     def lidar_callback(self, data):
+        self.scan_msg = data
         scan_ranges = np.array(data.ranges)
         scan_angles = np.linspace(data.angle_min, data.angle_max, len(scan_ranges))
         projected_speed_array = self.velocity * np.cos(scan_angles)
         projected_speed_array[projected_speed_array < 0.1] = 0.1
         ttc_array = (np.maximum(0,scan_ranges - 0.3)) / projected_speed_array
         self.ttc_index = np.argmin(ttc_array)
-        # self.ttc = ttc_array[self.ttc_index]
-        self.ttc = ttc_array[self.myScanIndex(data, math.degrees(self.steering_angle))]
+        self.ttc = ttc_array[self.ttc_index]
+        self.ttc_front = ttc_array[self.myScanIndex(data, math.degrees(self.steering_angle))]
 
     def odom_callback(self, data):
         """ Process each position update using the Pure Pursuit algorithm & publish an AckermannDriveStamped Message
@@ -96,7 +106,11 @@ class pure_pursuit:
         self.odom_stamp = data.header.stamp
         self.velocity = data.twist.twist.linear.x
 
-        self.L = 4. * self.velocity if self.velocity > sys.float_info.min else 2
+        # self.L = 8. * self.velocity if self.velocity > sys.float_info.min else 2.
+        # self.L  = 2
+        self.L = 0.59259259259259 * self.velocity + 1.8518518518519 if self.velocity > sys.float_info.min else 2.
+        self.L *= self.L_factor
+        rospy.loginfo_throttle(1, "velocity: " + str(self.velocity))
 
         poses_stamped = self.path.poses
         if len(poses_stamped) == 0:
@@ -109,6 +123,7 @@ class pure_pursuit:
         ground_pose = (self.ground_pose.position.x, self.ground_pose.position.y)
         prev_dist = np.linalg.norm(poses[self.prev_ground_path_index] - ground_pose)
         for i in range (self.prev_ground_path_index + 1, len(poses)):
+        # for i in range (0, len(poses)):
             dist = np.linalg.norm(poses[i] - ground_pose)
             if dist >= prev_dist:
                 break
@@ -187,22 +202,24 @@ class pure_pursuit:
 
     def compute_speed(self):
         # choose front beam ttc if minimum ttc is not in fov [-45, 45]
-        # if not -45 < math.degrees(self.myScanAngle(scan_msg, self.ttc_index)) < 45:
+        if not -45 < math.degrees(self.myScanAngle(self.scan_msg, self.ttc_index)) < 45:
             # speed = 5 * ttc_array[self.myScanIndex(scan_msg, math.degrees(self.steering_angle))]
-            # speed = min(7, max(0.5, 7 * (1 - math.exp(-0.5*ttc_front))))
-        # else:
-        speed = min(7, max(0.5, 7 * (1 - math.exp(-0.5*self.ttc))))
+            speed = min(7, max(0.5, 10 * (1 - math.exp(-0.5*self.ttc_front))))
+        else:
+            speed = min(7, max(0.5, 10 * (1 - math.exp(-0.75*self.ttc))))
         
         # clip speed by steering angle
-        clip = math.exp(3*abs(self.steering_angle) - 2)
-        diff = speed - clip
-        if diff > 0.25:
-            speed = diff
-        else:
-            speed = 0.25
+        speed /= 6. * pow(self.steering_angle, 2) + 1
+
+        # clip = math.exp(3*abs(self.steering_angle) - 2)
+        # diff = speed - clip
+        # if diff > 0.25:
+        #     speed = diff
+        # else:
+        #     speed = 0.25
         
-        # return speed
-        return 0.5
+        return speed
+        # return 0.5
 
 def main(args):
     rospy.init_node("pure_pursuit_node", anonymous=True)
