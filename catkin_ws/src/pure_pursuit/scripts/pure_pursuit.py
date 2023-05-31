@@ -25,6 +25,10 @@ class PointWrapper:
         assert isinstance(point, Point)
 
         self.point = point
+        self.min_speed = 0.5
+        self.ttc = 0
+        self.margin = 0.3
+        self.velocity=0
 
 class pure_pursuit:
     def __init__(self):
@@ -37,15 +41,21 @@ class pure_pursuit:
 
         self.path_pub = rospy.Subscriber(path_topic, Path, self.path_callback, queue_size=1)
         self.odom_sub = rospy.Subscriber(odom_topic, Odometry, self.odom_callback, queue_size=1)
-        #self.lidar_sub = rospy.Subscriber(lidarscan_topic, LaserScan, self.lidar_callback, queue_size=1) # optional
+        self.lidar_sub = rospy.Subscriber(lidarscan_topic, LaserScan, self.lidar_callback, queue_size=1)
 
         self.drive_pub = rospy.Publisher(drive_topic, AckermannDriveStamped, queue_size=1)
         self.marker_pub = rospy.Publisher("/marker_goal", Marker, queue_size = 1000)
 
         self.ground_pose = Pose()
-        self.L = 4
+        self.L = 2
         self.odom_frame = ""
         self.odom_stamp = rospy.Time()
+        self.velocity = 0.
+
+        self.ttc = 1000
+        self.speed = 0.
+        self.steering_angle = 0.
+
 
         self.path = Path() 
 
@@ -54,12 +64,39 @@ class pure_pursuit:
         self.tf_buffer = tf2_ros.Buffer(rospy.Duration(100.0))  # tf buffer length
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
 
+    def myScanIndex(self, scan_msg, angle):
+        # expects an angle in degrees and outputs the respective index in the scan_ranges array.
+        # angle: between -135 to 135 degrees, where 0 degrees is directly to the front
+
+        rad_angle = angle * math.pi / 180.0
+
+        if not (scan_msg.angle_min <= rad_angle <= scan_msg.angle_max):
+            rospy.loginfo("ANGLE out of range: " + str(angle))
+            return 540
+
+        index = int((rad_angle - scan_msg.angle_min) / scan_msg.angle_increment)
+
+        return index
+
+    def lidar_callback(self, data):
+        scan_ranges = np.array(data.ranges)
+        scan_angles = np.linspace(data.angle_min, data.angle_max, len(scan_ranges))
+        projected_speed_array = self.velocity * np.cos(scan_angles)
+        projected_speed_array[projected_speed_array < 0.1] = 0.1
+        ttc_array = (np.maximum(0,scan_ranges - 0.3)) / projected_speed_array
+        self.ttc_index = np.argmin(ttc_array)
+        # self.ttc = ttc_array[self.ttc_index]
+        self.ttc = ttc_array[self.myScanIndex(data, math.degrees(self.steering_angle))]
+
     def odom_callback(self, data):
         """ Process each position update using the Pure Pursuit algorithm & publish an AckermannDriveStamped Message
         """
         self.ground_pose = data.pose.pose
         self.odom_frame = data.header.frame_id
         self.odom_stamp = data.header.stamp
+        self.velocity = data.twist.twist.linear.x
+
+        self.L = 4. * self.velocity if self.velocity > sys.float_info.min else 2
 
         poses_stamped = self.path.poses
         if len(poses_stamped) == 0:
@@ -103,15 +140,16 @@ class pure_pursuit:
         curvature = 2 * goal_transformed.y / pow(self.L, 2)
         R = 1 / curvature
 
-        steering_angle = 1 / np.tan(curvature * 0.3302)
+        self.steering_angle = 1 / np.tan(curvature * 0.3302)
+        self.steering_angle = np.clip(self.steering_angle, -0.4189, 0.4189)
         # steering_angle = np.arctan(0.3302 * R)
         # steering_angle = np.arctan(1 / R)
 
-        speed = 0.5
+        self.speed = self.compute_speed()
         
         rospy.loginfo_throttle(1, "goal_transformed.x: " + str(goal_transformed.y))
 
-        self.publish_drive(speed, steering_angle)
+        self.publish_drive(self.speed, self.steering_angle)
         self.visualize_point(goal[0], goal[1])
     
     def path_callback(self, data):
@@ -147,6 +185,24 @@ class pure_pursuit:
         marker.lifetime = rospy.Duration(0.1)
         self.marker_pub.publish(marker)
 
+    def compute_speed(self):
+        # choose front beam ttc if minimum ttc is not in fov [-45, 45]
+        # if not -45 < math.degrees(self.myScanAngle(scan_msg, self.ttc_index)) < 45:
+            # speed = 5 * ttc_array[self.myScanIndex(scan_msg, math.degrees(self.steering_angle))]
+            # speed = min(7, max(0.5, 7 * (1 - math.exp(-0.5*ttc_front))))
+        # else:
+        speed = min(7, max(0.5, 7 * (1 - math.exp(-0.5*self.ttc))))
+        
+        # clip speed by steering angle
+        clip = math.exp(3*abs(self.steering_angle) - 2)
+        diff = speed - clip
+        if diff > 0.25:
+            speed = diff
+        else:
+            speed = 0.25
+        
+        # return speed
+        return 0.5
 
 def main(args):
     rospy.init_node("pure_pursuit_node", anonymous=True)
