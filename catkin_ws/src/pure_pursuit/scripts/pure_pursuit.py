@@ -44,7 +44,7 @@ class pure_pursuit:
         self.actual_path.header.frame_id="map"
 
         self.ground_pose = Pose()
-        self.L = 2
+        # self.L = 2
         self.L_factor = 2.
         self.odom_frame = ""
         self.odom_stamp = rospy.Time()
@@ -58,13 +58,14 @@ class pure_pursuit:
         self.ttc_front = 1000
         self.speed = 0.
         self.steering_angle = 0.
+        self.prev_error = 0.
 
         self.scan_msg = LaserScan()
 
 
         self.path_error = 0.
 
-        self.prev_ground_path_index = 0
+        self.prev_ground_path_index = None
         self.timestamp = 0
         self.n_log = 50
 
@@ -119,13 +120,14 @@ class pure_pursuit:
         self.timestamp += 1
 
         if self.velocity < sys.float_info.min:
-            self.prev_ground_path_index = 0
+            self.prev_ground_path_index = None
 
         # self.L = 8. * self.velocity if self.velocity > sys.float_info.min else 2.
         # self.L  = 2
         # self.L = 0.59259259259259 * self.velocity + 1.8518518518519 if self.velocity > sys.float_info.min else 2.
-        self.L = 0.81481481481482 * self.velocity + 0.2962962962963 if self.velocity > sys.float_info.min else 2.
-        self.L *= self.L_factor
+        # self.L = 0.81481481481482 * self.speed + 0.2962962962963 if self.speed > sys.float_info.min else 1.5
+        self.L = 0.35 * self.velocity + 0.18 if self.velocity > sys.float_info.min else 1.
+        # self.L *= self.L_factor
 
         poses_stamped = self.path.poses
         if len(poses_stamped) == 0:
@@ -138,13 +140,21 @@ class pure_pursuit:
         ground_pose = (self.ground_pose.position.x, self.ground_pose.position.y)
         self.append_pose(ground_pose[0], ground_pose[1])
 
+        if self.prev_ground_path_index is None:
+            dists = np.linalg.norm(poses - ground_pose, axis=1)
+            self.prev_ground_path_index = np.argmin(dists)
+            rospy.loginfo_throttle(1, "start index.x: " + str(self.prev_ground_path_index))
+
+
         prev_dist = np.linalg.norm(poses[self.prev_ground_path_index] - ground_pose)
-        for i in range (self.prev_ground_path_index + 1, len(poses)):
+        i = self.prev_ground_path_index + 1
+        while i < len(poses):
         # for i in range (0, len(poses)):
             dist = np.linalg.norm(poses[i] - ground_pose)
-            if dist >= prev_dist:
+            if dist > prev_dist:
                 break
             prev_dist = dist
+            i += 1
         start_index = i - 1
         start_pose = poses[start_index]
         self.prev_ground_path_index = start_index
@@ -156,7 +166,8 @@ class pure_pursuit:
         dist = 0
         i = start_index + 1
         while i < len(poses):
-            dist += np.linalg.norm(poses[i] - start_pose)
+            # dist += np.linalg.norm(poses[i] - start_pose)
+            dist = np.linalg.norm(poses[i] - ground_pose)
             if dist > self.L:
                 break
             i += 1
@@ -172,27 +183,28 @@ class pure_pursuit:
         goal_transformed = tf2_geometry_msgs.do_transform_point(PointWrapper(Point(goal[0], goal[1], 1)), transform).point
 
         self.goal_pose = goal_transformed
-
+    
         self.path_error = goal_transformed.y
 
         curvature = 2 * goal_transformed.y / pow(self.L, 2)
         R = 1 / curvature
 
-        self.steering_angle = 1 / np.tan(curvature * 0.3302)
-        self.steering_angle = np.clip(self.steering_angle, -0.4189, 0.4189)
-        # steering_angle = np.arctan(0.3302 * R)
+        # self.steering_angle = 1 / np.tan(curvature * 0.3302)
+        self.steering_angle = np.arctan(0.3302 * curvature)
         # steering_angle = np.arctan(1 / R)
+        self.steering_angle = np.clip(self.steering_angle, -0.4189, 0.4189)
 
         self.speed = self.compute_speed()
         
-        rospy.loginfo_throttle(1, "goal_transformed.x: " + str(goal_transformed.y))
+        # rospy.loginfo_throttle(1, "goal_transformed.x: " + str(goal_transformed.y))
         if self.timestamp % self.n_log == 0:
             self.timestamp = 0
-            rospy.loginfo(f"Ground-truth position: {ground_pose}")
+            # rospy.loginfo(f"Ground-truth position: {ground_pose}")
 
         self.publish_drive(self.speed, self.steering_angle)
         self.actual_path_pub.publish(self.actual_path)
         self.visualize_point(goal[0], goal[1])
+        # self.visualize_point(start_pose[0], start_pose[1])
     
     def path_callback(self, data):
         self.path = data
@@ -235,23 +247,31 @@ class pure_pursuit:
         # else:
         #     speed = min(7, max(0.5, 7 * (1 - math.exp(-0.75*self.ttc))))
 
-        alpha = np.arcsin(self.goal_pose.y / self.L)
+        # alpha = np.arcsin(self.goal_pose.y / self.L)
+        alpha = self.steering_angle
         rospy.loginfo_throttle(1, "alpha: " + str(alpha))
 
-        b = math.sqrt(pow(self.start_pose[0] - self.ground_pose.position.x, 2) + pow(self.start_pose[1] - self.ground_pose.position.y, 2))
+        # b = math.sqrt(pow(self.start_pose[0] - self.ground_pose.position.x, 2) + pow(self.start_pose[1] - self.ground_pose.position.y, 2))
+        b = self.path_error
         dt = b * math.cos(alpha)
 
-        path_error = dt + self.L * math.sin(alpha)
+        projected_path_error = dt + self.L * math.sin(alpha)
 
         ttc = self.ttc_array[self.myScanIndex(self.scan_msg, math.degrees(alpha))]
-        speed = min(7, max(0.5, 7 * (1 - math.exp(-0.5*ttc))))
+        speed = min(7, max(0.25, 7 * (1 - math.exp(-0.75*ttc))))
         
         # clip speed by steering angle
-        speed /= 8. * pow(self.steering_angle, 2) + 1
+        speed /= 10. * pow(self.steering_angle, 2) + 1
 
-        speed *= 1 / (10. * pow(path_error, 2))  + 1 if self.path_error > sys.float_info.min else 1.
 
-        # rospy.loginfo_throttle(1, "path error: " + str(self.path_error))
+        speed *= max(1, 1 / (pow(10 * projected_path_error, 2))) if projected_path_error > sys.float_info.min else 1.
+
+        # speed *= 5 * abs(path_error - self.prev_error)
+        self.prev_error = projected_path_error
+
+        # speed /= abs(path_error) + 1 if self.path_error > sys.float_info.min else 1.
+
+        rospy.loginfo_throttle(1, "path error: " + str(projected_path_error))
         # rospy.loginfo_throttle(1, "velocity: " + str(self.velocity))
 
         # clip = math.exp(3*abs(self.steering_angle) - 2)
