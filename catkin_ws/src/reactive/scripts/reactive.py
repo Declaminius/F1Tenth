@@ -44,7 +44,7 @@ class FollowTheGap:
         self.velocity_pub = rospy.Publisher("/velocity_topic", Float32, queue_size = 1000)
         self.steering_angle_pub = rospy.Publisher("/steering_angle_topic", Float32, queue_size = 1000)
         self.desired_speed_pub = rospy.Publisher("/desired_speed_topic", Float32, queue_size = 1000)
-        self.drive_pub = rospy.Publisher("/nav", AckermannDriveStamped, queue_size = 1000)
+        self.drive_pub = rospy.Publisher("/reactive_nav", AckermannDriveStamped, queue_size = 1000)
         self.marker_pub = rospy.Publisher("/visualization_marker", Marker, queue_size = 1000)
         self.gap_pub = rospy.Publisher("/gap_viz", LaserScan, queue_size = 1000)   
     

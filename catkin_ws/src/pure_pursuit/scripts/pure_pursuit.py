@@ -34,10 +34,10 @@ class pure_pursuit:
     def __init__(self):
         #Topics & Subscriptions,Publishers
         lidarscan_topic = '/scan'
-        drive_topic = '/nav'
+        drive_topic = '/pure_pursuit_nav'
         map_topic = '/map'
         odom_topic = '/odom'
-        path_topic = '/path'
+        path_topic = '/path2'
 
         self.path = Path() 
         self.actual_path = Path()
@@ -106,8 +106,8 @@ class pure_pursuit:
         projected_speed_array = self.velocity * np.cos(scan_angles)
         projected_speed_array[projected_speed_array < 0.1] = 0.1
         self.ttc_array = (np.maximum(0,scan_ranges - 0.3)) / projected_speed_array
-        self.ttc_index = np.argmin(self.ttc_array)
-        self.ttc = self.ttc_array[self.ttc_index]
+        self.ttc = np.amin(self.ttc_array[self.myScanIndex(self.scan_msg, math.degrees(self.steering_angle) - 30):self.myScanIndex(self.scan_msg, math.degrees(self.steering_angle) + 30)])
+        # self.ttc = self.ttc_array[self.ttc_index]
         self.ttc_front = self.ttc_array[self.myScanIndex(data, math.degrees(self.steering_angle))]
 
     def odom_callback(self, data):
@@ -142,6 +142,9 @@ class pure_pursuit:
 
         if self.prev_ground_path_index is None:
             dists = np.linalg.norm(poses - ground_pose, axis=1)
+            # dx = [abs(ground_pose[1] - pose[0]) for pose in poses]
+            # dy = [abs(ground_pose[0] - pose[1]) for pose in poses]
+            # dists = np.hypot(dx, dy)
             self.prev_ground_path_index = np.argmin(dists)
             rospy.loginfo_throttle(1, "start index.x: " + str(self.prev_ground_path_index))
 
@@ -248,6 +251,10 @@ class pure_pursuit:
         #     speed = min(7, max(0.5, 7 * (1 - math.exp(-0.75*self.ttc))))
 
         # alpha = np.arcsin(self.goal_pose.y / self.L)
+
+        if self.goal_pose.x < 0:
+            return 0.1
+
         alpha = self.steering_angle
         rospy.loginfo_throttle(1, "alpha: " + str(alpha))
 
@@ -257,7 +264,8 @@ class pure_pursuit:
 
         projected_path_error = dt + self.L * math.sin(alpha)
 
-        ttc = self.ttc_array[self.myScanIndex(self.scan_msg, math.degrees(alpha))]
+        # ttc = self.ttc_array[self.myScanIndex(self.scan_msg, math.degrees(alpha))]
+        ttc = self.ttc
         speed = min(7, max(0.25, 7 * (1 - math.exp(-0.75*ttc))))
         
         # clip speed by steering angle
