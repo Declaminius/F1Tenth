@@ -1,9 +1,8 @@
 <launch>
+  <include file="$(find f1tenth_simulator)/launch/simulator.launch">
+    <arg name="map" default="$(find reactive)/maps/arc_lab.yaml"/>
+  </include>
   <include file="$(find reactive)/launch/ukf.launch"/>
-
-  <!-- <node pkg="tf2_ros" type="static_transform_publisher" name="map_to_odom_frame" 
-      args="0.0 0.0 0.0     0.0 0.0 0.0 1.0 /map /odom_frame" /> -->
-  <arg name="map_file" default="$(find reactive)/map/map1.yaml"/>
   <node pkg="amcl" type="amcl" name="amcl" output="screen">
   <!-- Publish scans from best pose at a max of 10 Hz -->
   <param name="odom_model_type" value="diff"/>
@@ -36,6 +35,5 @@
   <param name="recovery_alpha_slow" value="0.0"/>
   <param name="recovery_alpha_fast" value="0.0"/>
 </node>
-   <!-- <node name="reactive" pkg="reactive" type="reactive.py" output = "screen"/> -->
   
 </launch>
