@@ -54,7 +54,7 @@ class PathGenerator:
         # Controller parameters
         self.sparsity = 5 
         self.scale = 1 # by which factor to downscale the map resolution before performing the path generation
-        self.safety_margin = 0.4 # in meters
+        self.safety_margin = 0.7 # in meters
         self.occupancy_treshhold = 10 # pixel below this treshold (in percent) we consider free space
     
 
@@ -193,7 +193,8 @@ class PathGenerator:
                             previous_node[(new_x,new_y)] = (x,y)
                             nodeCosts[(new_x,new_y)] = new_costs
                             heap.heappush(priority_queue, (new_costs, (new_x,new_y)))
-    
+        rospy.logerr("No path found from startpoint to finish line! Reduce the self.safety_margin parameter")
+
     @timing
     def shortest_path(self, map_msg, safe_area, finish_line_start, finish_line_end, neighborhood):
         "Use Dijkstra with a 4-neighborhood or an 8-neighborhood"
@@ -290,11 +291,10 @@ class PathGenerator:
                     stack.append((x - 1, y))
         
         return map_binary == 2
+    
 
     
     def map_callback(self, map_msg):
-        rospy.loginfo(f"Map Header: {map_msg.header}")
-        rospy.loginfo(f"Map info: {map_msg.info}")
 
         map_binary = self.preprocess_map(map_msg)
         rospy.loginfo(f"number of free grid cells: {np.sum(map_binary)}")
@@ -311,8 +311,8 @@ class PathGenerator:
         neighborhood4 = [(0,1,1), (0,-1,1), (1,0,1), (-1,0,1)]
         neighborhood8 = [(0,1,1), (0,-1,1), (1,0,1), (-1,0,1), (1,1,np.sqrt(2)), (1,-1,np.sqrt(2)), (-1,1, np.sqrt(2)), (-1,1, np.sqrt(2))]
 
-        shortest_path, distance = self.shortest_path(map_msg, safe_area, finish_line_start, finish_line_end, neighborhood4)
-        rospy.loginfo(f"Length of shortest path: {self.map_res * distance} meters")
+        # shortest_path, distance = self.shortest_path(map_msg, safe_area, finish_line_start, finish_line_end, neighborhood4)
+        # rospy.loginfo(f"Length of shortest path: {self.map_res * distance} meters")
 
         shortest_path, distance = self.shortest_path(map_msg, safe_area, finish_line_start, finish_line_end, neighborhood8)
         rospy.loginfo(f"Length of shortest path (with diagonals): {self.map_res * distance} meters")
