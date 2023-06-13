@@ -27,7 +27,7 @@ class FollowTheGap:
         lidarscan_topic = '/scan'
         drive_topic = '/nav'
 
-        self.margin = 0.2
+        self.margin = 0.3
         self.speed_percentage = 0.15
 
         self.velocity = 0
