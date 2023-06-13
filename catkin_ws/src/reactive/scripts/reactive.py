@@ -29,8 +29,9 @@ class FollowTheGap:
 
         self.lookahead_dist = 2
         self.margin = 0.3
-        self.velocity = 0
+        self.speed_percentage = 0.25
 
+        self.velocity = 0
         self.speed = 0
         self.steering_angle = 0
         self.ttc = 0
@@ -271,7 +272,7 @@ class FollowTheGap:
 
         ### Compute the desired driving speed based on our current time-to-collision and steering angle
 
-        self.speed = self.compute_speed(scan_msg, ttc_front)
+        self.speed = self.compute_speed(scan_msg, ttc_front)*self.speed_percentage
 
         ### Publish speed and steering angle
 
