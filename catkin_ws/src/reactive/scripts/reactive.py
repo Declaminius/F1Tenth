@@ -90,7 +90,7 @@ class FollowTheGap:
             speed = min(7, max(0.5, 7 * (1 - math.exp(-0.75*self.ttc))))
         
         # clip speed by steering angle
-        clip = math.exp(3*abs(self.steering_angle) - 2)
+        clip = math.exp(8*abs(self.steering_angle) - 2)
         diff = speed - clip
         if diff > 0.5:
             speed = diff
@@ -142,10 +142,10 @@ class FollowTheGap:
         front_dist = scan_msg.ranges[self.myScanIndex(scan_msg, 0)]
         if right_dist < self.margin and right_dist < left_dist:
             steering_angle = np.pi/4 # 45 degrees left
-            print(f"DANGER! Turning left because {right_dist=}")
+            # print(f"DANGER! Turning left because {right_dist=}")
         elif left_dist < self.margin:
             steering_angle = -np.pi/4 # 45 degrees right
-            print(f"DANGER! Turning right because {left_dist=}")
+            # print(f"DANGER! Turning right because {left_dist=}")
         elif front_dist < self.margin:
             if right_dist < left_dist:
                 steering_angle = np.pi/3 # 60 degrees left
@@ -286,7 +286,7 @@ class FollowTheGap:
         ### Visualize the waypoint we're driving towards
 
         best_angle = self.myScanAngle(scan_msg, self.best_point)
-        self.visualize_point(self.best_distance*np.cos(best_angle), self.best_distance*np.sin(best_angle), r = 0, g = 1, b = 0)
+        # self.visualize_point(self.best_distance*np.cos(best_angle), self.best_distance*np.sin(best_angle), r = 0, g = 1, b = 0)
 
         # Visualize the car's speed and steering angle with an arrow
 

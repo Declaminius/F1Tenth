@@ -3,6 +3,8 @@ from __future__ import print_function
 import sys
 import math
 import numpy as np
+import json
+from io import BytesIO
 
 #ROS Imports
 import rospy
@@ -10,7 +12,7 @@ import tf2_ros
 import tf2_geometry_msgs
 from sensor_msgs.msg import LaserScan
 from ackermann_msgs.msg import AckermannDriveStamped, AckermannDrive
-from geometry_msgs.msg import Point, Pose, PoseStamped
+from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
 from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
 from nav_msgs.msg import OccupancyGrid
@@ -72,13 +74,16 @@ class pure_pursuit:
         self.tf_buffer = tf2_ros.Buffer(rospy.Duration(100.0))  # tf buffer length
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
 
-        self.path_pub = rospy.Subscriber(path_topic, Path, self.path_callback, queue_size=1)
+        self.path_pub = rospy.Publisher('/path2', Path, latch=True, queue_size=1)
+        # self.path_pub = rospy.Subscriber(path_topic, Path, self.path_callback, queue_size=1)
         self.odom_sub = rospy.Subscriber(odom_topic, Odometry, self.odom_callback, queue_size=1)
         self.lidar_sub = rospy.Subscriber(lidarscan_topic, LaserScan, self.lidar_callback, queue_size=1)
 
         self.drive_pub = rospy.Publisher(drive_topic, AckermannDriveStamped, queue_size=1)
         self.marker_pub = rospy.Publisher("/marker_goal", Marker, queue_size = 1000)
         self.actual_path_pub = rospy.Publisher("/actual_path", Path, latch=True, queue_size=1)
+
+        self.path_file = None
 
     def myScanIndex(self, scan_msg, angle):
         # expects an angle in degrees and outputs the respective index in the scan_ranges array.
@@ -208,6 +213,8 @@ class pure_pursuit:
         self.actual_path_pub.publish(self.actual_path)
         self.visualize_point(goal[0], goal[1])
         # self.visualize_point(start_pose[0], start_pose[1])
+
+        self.path_pub.publish(self.path)
     
     def path_callback(self, data):
         self.path = data
@@ -305,6 +312,17 @@ def main(args):
     rospy.init_node("pure_pursuit_node", anonymous=True)
     rfgs = pure_pursuit()
     rospy.sleep(0.1)
+    # with open("/home/larisa/F1Tenth/path.json", "r") as path_file:
+    #     rfgs.path_file = path_file
+    #     path_dict = json.load(path_file)
+    #     rfgs.path.header = path_dict['header']
+    #     rfgs.path.poses = [PoseStamped(p['header'], Pose(Point(p['pose']['position']['x'], p['pose']['position']['x'], 1),
+    #                                                      Quaternion(p['pose']['orientation']['x'], p['pose']['orientation']['y'], p['pose']['orientation']['z'], p['pose']['orientation']['w']))) for p in path_dict['poses']]
+    
+    with open("/home/larisa/F1Tenth/path.bin", "rb") as path_file:
+        rfgs.path_file = path_file
+        buf = BytesIO(path_file.read())
+        rfgs.path.deserialize(buf.getvalue())
     rospy.spin()
 
 if __name__ == '__main__':
