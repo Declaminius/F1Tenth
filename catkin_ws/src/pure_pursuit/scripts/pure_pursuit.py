@@ -104,6 +104,8 @@ class pure_pursuit:
         # returns angle in radians
 
         return scan_msg.angle_min + index * scan_msg.angle_increment
+    
+
 
     def lidar_callback(self, data):
         self.scan_msg = data

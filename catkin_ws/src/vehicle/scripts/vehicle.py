@@ -84,6 +84,8 @@ class Vehicle:
         self.reactive_drive = rospy.Subscriber(reactive_topic, AckermannDriveStamped, self.reactive_callback, queue_size=1)
         self.scans_pub = rospy.Publisher("/cartesian_scans", Marker, queue_size = 1)
         self.obstacle_marker_pub = rospy.Publisher("/obstacle", Marker, queue_size = 1000)
+        self.gap_pub = rospy.Publisher("/received_scans", LaserScan, queue_size = 1000)   
+        self.lf_pub = rospy.Publisher('/lf', OccupancyGrid, queue_size=1, latch=True)
 
         self.drive_pub = rospy.Publisher(drive_topic, AckermannDriveStamped, queue_size=1)
 
@@ -108,14 +110,36 @@ class Vehicle:
         self.car_stamp = rospy.Time.now()
         self.map_stamp = rospy.Time.now()
 
+        self.lf = OccupancyGrid()
+
         self.path_sub = rospy.Subscriber(path_topic, Path, self.path_callback, queue_size=1)
         self.lidar_sub = rospy.Subscriber(lidarscan_topic, LaserScan, self.lidar_callback, queue_size=1)
         self.odom_sub = rospy.Subscriber(odom_topic, Odometry, self.odom_callback, queue_size=1)
         self.ground_truth_sub = rospy.Subscriber(ground_truth_topic, Odometry, self.gt_callback, queue_size=1)
         self.map_sub = rospy.Subscriber("/map", OccupancyGrid, self.map_callback, queue_size=1)
 
-        self.tf_buffer = tf2_ros.Buffer(rospy.Duration(100.0))  # tf buffer length
+        self.tf_buffer = tf2_ros.Buffer(rospy.Duration(1.0))  # tf buffer length
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
+
+    def set_lf(self, lf):
+        self.lf = lf
+        self.lf_pub.publish(lf)
+
+    def convert_position_to_grid_cell(self, pos_x, pos_y):
+        "Takes a position in meters and converts it to the corresponding grid cell in the OccupancyGrid"
+
+        index_x = int(pos_x/self.map.info.resolution + self.map.info.height/2)
+        index_y = int(pos_y/self.map.info.resolution + self.map.info.width/2)
+
+        return index_x, index_y
+    
+    def convert_grid_cell_to_position(self, index_x, index_y):
+        "Takes a tuple (i,j) of indices on the grid and converts it to its coordinates in meters."
+        
+        pos_x = (index_x - self.map.info.height/2)*self.map.info.resolution
+        pos_y = (index_y - self.map.info.width/2)*self.map.info.resolution
+
+        return pos_x, pos_y
 
     def pure_pursuit_callback(self, drive):
         self.pp_drive_msg = drive
@@ -153,6 +177,8 @@ class Vehicle:
         if self.map is None or self.map.info.width == 0:
             return
         
+        self.gap_pub.publish(data)
+
         self.scan_msg = data
         self.sensor_frame = data.header.frame_id
         self.sensor_stamp = data.header.stamp
@@ -182,11 +208,11 @@ class Vehicle:
 
         try:
             # transform scans from sensor frame to map frame
-            sensor_to_car = self.tf_buffer.lookup_transform(self.map_frame, self.sensor_frame, data.header.stamp) 
+            sensor_to_car = self.tf_buffer.lookup_transform(self.map_frame, self.sensor_frame, rospy.Time(0)) 
             # map_to_car = self.tf_buffer.lookup_transform(self.car_frame, self.map_frame, self.sensor_stamp) 
-            car_to_map = self.tf_buffer.lookup_transform(self.map_frame, self.car_frame, data.header.stamp) 
+            car_to_map = self.tf_buffer.lookup_transform(self.map_frame, self.car_frame, rospy.Time(0)) 
             transformed_cartesian_scans = [tf2_geometry_msgs.do_transform_point(PointStamped(data.header, p), sensor_to_car) for p in cartesian_scans]
-            transformed_cartesian_scans = [tf2_geometry_msgs.do_transform_point(p, car_to_map) for p in transformed_cartesian_scans]
+            # transformed_cartesian_scans = [tf2_geometry_msgs.do_transform_point(p, car_to_map) for p in transformed_cartesian_scans]
             transformed_cartesian_scans = [p.point  for p in transformed_cartesian_scans]
             
             # OLD: manual transformation ------------------
@@ -199,25 +225,11 @@ class Vehicle:
             # ------------------------------------------------
 
             # cond = lambda window: np.any(window > 0)
-            lf_cond = lambda scan: self.likelihood_field[int(scan.x)][int(scan.y)] > 0.1
+            def lf_cond(scan):
+                cell_x, cell_y = self.convert_position_to_grid_cell(scan.x, scan.y)
+                return self.likelihood_field[cell_x][cell_y] < 0.2
+            rospy.loginfo_throttle(1, "MAX LIKELIHOOD FIELD VALUE: " + str(np.amax(self.likelihood_field)))
 
-            # def window_around_scan(scan):
-            #     center_row = int(scan.x)
-            #     center_col = int(scan.y)
-            #     window_size = 500
-            #     start_row = max(center_row - window_size // 2, 0)
-            #     end_row = min(center_row + window_size // 2 + 1, self.map.info.width)
-            #     start_col = max(center_col - window_size // 2, 0)
-            #     end_col = min(center_col + window_size // 2 + 1, self.map.info.height)
-            #     # Adjust the boundaries to matrix bounds if necessary
-            #     adjusted_start_row = max(start_row, 0)
-            #     adjusted_end_row = min(end_row, self.map.info.width)
-            #     adjusted_start_col = max(start_col, 0)
-            #     adjusted_end_col = min(end_col, self.map.info.height)
-            #     # Create the window
-            #     return self.map_matrix[adjusted_start_row:adjusted_end_row, adjusted_start_col:adjusted_end_col]
-
-            # scans_idxs = np.argwhere([cond(window_around_scan(scan)) for scan in transformed_cartesian_scans])
             scans_idxs = np.argwhere([lf_cond(scan) for scan in transformed_cartesian_scans])
             if len(scans_idxs) > 0:
                  # obstacle detected
@@ -234,58 +246,13 @@ class Vehicle:
                 self.drive_mode = 'FOLLOW THE GAP'
                 self.drive_pub.publish(drive_msg)
 
-
-            # for idx, scan in enumerate(cartesian_scans):
-            #     margin = 50
-            #     # center = int(scan.x * self.map.info.width + scan.y)
-            #     # window = np.array(self.map.data[center - margin * self.map.info.width - margin: center - margin * self.map.info.width + margin])
-            #     # for i in range(1, margin):
-            #         # window = np.append(window, np.array(self.map.data[center - (margin + i) * self.map.info.width - margin: center - (margin + i) * self.map.info.width + margin]))
-
-                
-            #     center_point = Point(scan.x , scan.y, 1)
-            #     # center_points.append(center_point)
-            #     # window = map_matrix[max(0, scan.point.x - margin)  * self.map.info.resolution - 50 : min(self.map.info.height - 1, scan.point.x + margin)  * self.map.info.resolution- 50][max(0, scan.point.y - margin)  * self.map.info.resolution  - 50: min(self.map.info.width - 1, scan.point.y + margin)  * self.map.info.resolution- 50]
-            #     window = map_matrix[max(0, int(center_point.x) - margin // 2): min(self.map.info.height - 1, int(center_point.x) + margin // 2)][max(0, int(center_point.y) - margin // 2): min(self.map.info.width - 1, int(center_point.y) + margin // 2)]
-
-            #     # if map_matrix[int(scan.point.x)][int(scan.point.y)] > 0:
-            #     # if np.count_nonzero(window) > 0.1 * math.pow(margin*2, 2):
-            #     dist_threshold = np.linalg.norm(np.array([scan.x, scan.y]) - np.array([self.pose.pose.position.x, self.pose.pose.position.y]))
-            #     if window.any() and dist_threshold < 5:
-            #         # obstacle detected
-            #         colors[idx].r = 1.0
-            #         colors[idx].g = 0.0
-            #         self.visualize_obstacle(scan.x, scan.y)
-            #         drive_msg = AckermannDriveStamped()
-            #         drive_msg.header.stamp = self.reactive_drive_msg.header.stamp
-            #         drive_msg.drive.steering_angle = self.reactive_drive_msg.drive.steering_angle
-            #         drive_msg.drive.speed = self.reactive_drive_msg.drive.speed
-            #         self.steering_angle = drive_msg.drive.steering_angle
-
-            #         self.drive_mode = 'FOLLOW THE GAP'
-            #         self.drive_pub.publish(drive_msg)
-            #         break
-
-
-                # if map_matrix[int(scan.point.x)][int(scan.point.y)] != 0:
-                #     map_viz = np.append(map_viz, scan.point)
-
-            
-            # colors = [ColorRGBA(0.0, 1.0, 0.0, 1.0)] * len(map_viz)
-            # self.visualize_cartesian_scans(map_viz, colors)
-
-            # colors = [ColorRGBA(0.0, 1.0, 0.0, 1.0)] * len(center_points)
-            # self.visualize_cartesian_scans(center_points, colors)
-
             cartesian_scans = transformed_cartesian_scans
 
         except Exception as e:
             ok = True
             cartesian_scans = backup
-            # traceback.print_exc()
-            # rospy.loginfo_throttle(1, "EXCEPTION: " + str(e))
 
-        self.visualize_cartesian_scans(cartesian_scans, colors, data.header.stamp)
+        self.visualize_cartesian_scans(cartesian_scans, colors, rospy.Time.now())
 
         # if self.ttc > 2.:
         #     drive_msg.drive.steering_angle = self.pp_drive_msg.drive.steering_angle
@@ -312,14 +279,14 @@ class Vehicle:
         marker.color.r = 1.0
         marker.color.g = 1.0
         marker.color.b = 0.
-        marker.colors = colors
+        marker.colors = colors[::100]
         marker.pose.orientation.w = 1
         marker.pose.position.x = -0.5
         marker.pose.position.y = -0.5
         marker.pose.position.z = 0
-        marker.lifetime = rospy.Duration(0.1)
+        marker.lifetime = rospy.Duration()
 
-        marker.points = scans
+        marker.points = scans[::100]
         # rospy.loginfo_throttle(1, marker.points)
         self.scans_pub.publish(marker)
 
@@ -361,11 +328,20 @@ class Vehicle:
             map = map.astype(np.uint8)
             dists = cv2.distanceTransform(map, cv2.DIST_L2, 5)
             dists = dists / scale
-            distribution = norm(0.0, 0.6)
+            distribution = norm(0.0, 0.9)
             for i in range (0, height):
                 for j in range (0, width):
                     prob = distribution.pdf(dists[i, j])
                     self.likelihood_field[i, j] = prob
+
+            lf = OccupancyGrid()
+            lf.info = MapMetaData()
+            lf.info = self.map.info
+            normalized_lf = self.likelihood_field.copy()
+            normalized_lf *= 100. / np.max(normalized_lf) 
+            lf.data = normalized_lf.flatten().to_list()
+
+            return lf
             
         except:
             traceback.print_exc()
@@ -406,7 +382,7 @@ def main(args):
         buf = BytesIO(f.read())
         rfgs.map.deserialize(buf.getvalue())
         rfgs.map_matrix = np.matrix(preprocess_map(rfgs.map))
-        rfgs.compute_likelihood_field()
+        rfgs.set_likelihood_field(rfgs.compute_likelihood_field())
         rospy.sleep(0.1)
     rospy.spin()  
 
