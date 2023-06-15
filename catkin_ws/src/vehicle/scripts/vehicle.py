@@ -13,6 +13,7 @@ import cv2
 
 #ROS Imports
 import rospy
+import rospkg
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Header, ColorRGBA
 from nav_msgs.msg import Odometry, Path, OccupancyGrid, MapMetaData
@@ -111,7 +112,7 @@ class Vehicle:
         self.lidar_sub = rospy.Subscriber(lidarscan_topic, LaserScan, self.lidar_callback, queue_size=1)
         self.odom_sub = rospy.Subscriber(odom_topic, Odometry, self.odom_callback, queue_size=1)
         self.ground_truth_sub = rospy.Subscriber(ground_truth_topic, Odometry, self.gt_callback, queue_size=1)
-        # self.map_sub = rospy.Subscriber("/map", OccupancyGrid, self.map_callback, queue_size=1)
+        self.map_sub = rospy.Subscriber("/map", OccupancyGrid, self.map_callback, queue_size=1)
 
         self.tf_buffer = tf2_ros.Buffer(rospy.Duration(100.0))  # tf buffer length
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
@@ -137,7 +138,8 @@ class Vehicle:
         serialized_bytes = buff.getvalue()
 
         # if self.map_file is not None:
-        with open("/home/larisa/F1Tenth/map.bin", "wb") as f:
+        rospack = rospkg.RosPack()
+        with open(f"{rospack.get_path('vehicle')}/map.bin", "wb") as f:
             rospy.loginfo_throttle(1, "MAP: " + str(buff.getbuffer()))
             f.write(buff.getbuffer())
 
@@ -180,7 +182,7 @@ class Vehicle:
 
         try:
             # transform scans from sensor frame to map frame
-            sensor_to_car = self.tf_buffer.lookup_transform(self.car_frame, self.sensor_frame, data.header.stamp) 
+            sensor_to_car = self.tf_buffer.lookup_transform(self.map_frame, self.sensor_frame, data.header.stamp) 
             # map_to_car = self.tf_buffer.lookup_transform(self.car_frame, self.map_frame, self.sensor_stamp) 
             car_to_map = self.tf_buffer.lookup_transform(self.map_frame, self.car_frame, data.header.stamp) 
             transformed_cartesian_scans = [tf2_geometry_msgs.do_transform_point(PointStamped(data.header, p), sensor_to_car) for p in cartesian_scans]
@@ -391,14 +393,16 @@ class Vehicle:
         data.serialize(buff)
         # serialized_bytes = buff.getvalue()
 
-        # with open("/home/larisa/F1Tenth/path.bin", "wb") as f:
-        #     f.write(buff.getbuffer())
+        rospack = rospkg.RosPack()
+        with open(f"{rospack.get_path('vehicle')}/path.bin", "wb") as f:
+            f.write(buff.getbuffer())
 
 def main(args):
     rospy.init_node("vehicle_node", anonymous=True)
     rfgs = Vehicle()
     rospy.sleep(0.1)
-    with open("/home/larisa/F1Tenth/map.bin", "rb") as f:
+    rospack = rospkg.RosPack()
+    with open(f"{rospack.get_path('vehicle')}/map.bin", "rb") as f:
         buf = BytesIO(f.read())
         rfgs.map.deserialize(buf.getvalue())
         rfgs.map_matrix = np.matrix(preprocess_map(rfgs.map))
@@ -406,9 +410,9 @@ def main(args):
         rospy.sleep(0.1)
     rospy.spin()  
 
-    # with open("/home/larisa/F1Tenth/map.bin", "wb") as f:
+    # with open(f"{rospack.get_path('vehicle')}/src/map.bin", "wb") as f:
         # rfgs.map_file = f
-    # rospy.spin()  
+    rospy.spin()  
 
 if __name__ == '__main__':
     main(sys.argv)

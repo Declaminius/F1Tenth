@@ -8,6 +8,7 @@ from io import BytesIO
 
 #ROS Imports
 import rospy
+import rospkg
 import tf2_ros
 import tf2_geometry_msgs
 from sensor_msgs.msg import LaserScan
@@ -319,7 +320,8 @@ def main(args):
     #     rfgs.path.poses = [PoseStamped(p['header'], Pose(Point(p['pose']['position']['x'], p['pose']['position']['x'], 1),
     #                                                      Quaternion(p['pose']['orientation']['x'], p['pose']['orientation']['y'], p['pose']['orientation']['z'], p['pose']['orientation']['w']))) for p in path_dict['poses']]
     
-    with open("/home/larisa/F1Tenth/path.bin", "rb") as path_file:
+    rospack = rospkg.RosPack()
+    with open(f"{rospack.get_path('vehicle')}/path.bin", "rb") as path_file:
         rfgs.path_file = path_file
         buf = BytesIO(path_file.read())
         rfgs.path.deserialize(buf.getvalue())
