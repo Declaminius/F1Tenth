@@ -1,7 +1,0 @@
-image: rounded_edges.pgm
-resolution: 0.050000
-origin: [-17.621219, -26.235590, 0.000000]
-negate: 0
-occupied_thresh: 0.65
-free_thresh: 0.196
-
