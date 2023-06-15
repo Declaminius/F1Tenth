@@ -72,7 +72,7 @@ permit_corrected_publication: false
 # world_frame: map       # Defaults to the value of odom_frame if unspecified
 
 map_frame: map             # Defaults to "map" if unspecified
-odom_frame: odom_frame     # Defaults to "odom" if unspecified
+odom_frame: odom    # Defaults to "odom" if unspecified
 base_link_frame: base_link  # Defaults to "base_link" if unspecified
 world_frame: map       # Defaults to the value of odom_frame if unspecified
 

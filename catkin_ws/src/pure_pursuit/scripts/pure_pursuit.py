@@ -19,6 +19,9 @@ from visualization_msgs.msg import MarkerArray
 from nav_msgs.msg import OccupancyGrid
 from nav_msgs.msg import Odometry, Path
 
+#Local imports
+from rviz_functions import visualize_point
+
 # from skimage import io, morphology, img_as_ubyte TODO: Uncomment
 from scipy import spatial
 
@@ -42,13 +45,19 @@ class pure_pursuit:
         odom_topic = '/odom'
         path_topic = '/path2'
 
+        # Tuneable parameters
+        # self.L = 2
+        self.L_factor = 2.
+        self.speed_percentage = 0.6
+        self.n_log = 50
+        self.multilap = True
+
         self.path = Path() 
         self.actual_path = Path()
         self.actual_path.header.frame_id="map"
 
         self.ground_pose = Pose()
-        # self.L = 2
-        self.L_factor = 2.
+        
         self.odom_frame = ""
         self.odom_stamp = rospy.Time()
         self.velocity = 0.
@@ -70,7 +79,7 @@ class pure_pursuit:
 
         self.prev_ground_path_index = None
         self.timestamp = 0
-        self.n_log = 50
+        
 
         self.tf_buffer = tf2_ros.Buffer(rospy.Duration(100.0))  # tf buffer length
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
@@ -134,7 +143,7 @@ class pure_pursuit:
         # self.L  = 2
         # self.L = 0.59259259259259 * self.velocity + 1.8518518518519 if self.velocity > sys.float_info.min else 2.
         # self.L = 0.81481481481482 * self.speed + 0.2962962962963 if self.speed > sys.float_info.min else 1.5
-        self.L = 0.35 * self.velocity + 0.18 if self.velocity > sys.float_info.min else 1.
+        self.L = 0.35 * self.velocity + 1 if self.velocity > sys.float_info.min else 1.
         # self.L *= self.L_factor
 
         poses_stamped = self.path.poses
@@ -160,12 +169,14 @@ class pure_pursuit:
         prev_dist = np.linalg.norm(poses[self.prev_ground_path_index] - ground_pose)
         i = self.prev_ground_path_index + 1
         while i < len(poses):
-        # for i in range (0, len(poses)):
             dist = np.linalg.norm(poses[i] - ground_pose)
             if dist > prev_dist:
                 break
             prev_dist = dist
             i += 1
+            # Start a new lap
+            if self.multilap and i == len(poses):
+                i = 0
         start_index = i - 1
         start_pose = poses[start_index]
         self.prev_ground_path_index = start_index
@@ -177,11 +188,13 @@ class pure_pursuit:
         dist = 0
         i = start_index + 1
         while i < len(poses):
-            # dist += np.linalg.norm(poses[i] - start_pose)
             dist = np.linalg.norm(poses[i] - ground_pose)
             if dist > self.L:
                 break
             i += 1
+            # Start a new lap
+            if self.multilap and i == len(poses):
+                i = 0
                 
         goal = poses[i - 1]
         
@@ -205,7 +218,7 @@ class pure_pursuit:
         # steering_angle = np.arctan(1 / R)
         self.steering_angle = np.clip(self.steering_angle, -0.4189, 0.4189)
 
-        self.speed = self.compute_speed()
+        self.speed = self.compute_speed()*self.speed_percentage
         
         # rospy.loginfo_throttle(1, "goal_transformed.x: " + str(goal_transformed.y))
         if self.timestamp % self.n_log == 0:
@@ -219,8 +232,8 @@ class pure_pursuit:
 
         self.path_pub.publish(self.path)
     
-    def path_callback(self, data):
-        self.path = data
+    def path_callback(self, path_msg):
+        self.path = path_msg
      
 
     def publish_drive(self, speed, angle):
@@ -231,26 +244,6 @@ class pure_pursuit:
         drive_msg.drive.speed = speed
         self.drive_pub.publish(drive_msg)
 
-    def visualize_point(self,x,y,frame='map',r=0.0,g=1.0,b=0.0):
-        marker = Marker()
-        marker.header.frame_id = frame
-        marker.header.stamp = rospy.Time.now()
-        marker.id = 150
-        marker.type = marker.SPHERE
-        marker.action = marker.ADD
-        marker.scale.x = 1
-        marker.scale.y = 1
-        marker.scale.z = 1
-        marker.color.a = 1.0
-        marker.color.r = r
-        marker.color.g = g
-        marker.color.b = b
-        marker.pose.orientation.w = 1.0
-        marker.pose.position.x = x
-        marker.pose.position.y = y
-        marker.pose.position.z = 0
-        marker.lifetime = rospy.Duration(0.1)
-        self.marker_pub.publish(marker)
 
     def compute_speed(self):
         # choose front beam ttc if minimum ttc is not in fov [-45, 45]

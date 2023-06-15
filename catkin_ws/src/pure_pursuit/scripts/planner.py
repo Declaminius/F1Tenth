@@ -54,7 +54,7 @@ class PathGenerator:
         # Controller parameters
         self.sparsity = 5 
         self.scale = 1 # by which factor to downscale the map resolution before performing the path generation
-        self.safety_margin = 0.4 # in meters
+        self.safety_margin = 0.7 # in meters
         self.occupancy_treshhold = 10 # pixel below this treshold (in percent) we consider free space
     
 
@@ -121,11 +121,10 @@ class PathGenerator:
         return eroded_map
     
     @timing
-    def dijkstra(self, map_msg, safe_area, finish_line_start, finish_line_end, neighborhood):
+    def dijkstra(self, map_msg, safe_area, starting_point, finish_line_start, finish_line_end, neighborhood):
         # Currently implemented with a 4-neighborhood - since Dijkstra is equivalent to breadth-first search
         # for uniform weights
         # Currently expects the finishline to always be horizontal
-        # TODO: Make this into proper Dijkstra with an 8-neighborhood with diagonal weights of sqrt(2)
         x = finish_line_start[0]
         finish_line = [(x,y) for y in range(finish_line_start[1], finish_line_end[1] + 1)]
 
@@ -135,22 +134,25 @@ class PathGenerator:
         priority_queue = []
 
         nodeCosts = defaultdict(lambda: float('inf'))
-        for cell in finish_line:
-            if cell == self.starting_point:
-                visited[cell] = True
-            else:
-                nodeCosts[cell] = 0
-                heap.heappush(priority_queue, (0, cell))
+        start = (starting_point[0] + 1, starting_point[1])
+        nodeCosts[start] = 0
+        heap.heappush(priority_queue, (0, start))
+        # for cell in finish_line:
+        #     if cell == self.starting_point:
+        #         visited[cell] = True
+        #     else:
+        #         nodeCosts[cell] = 0
+        #         heap.heappush(priority_queue, (0, cell))
 
-        previous_node = {}
+        previous_node = {start: starting_point}
 
         i = 0
         while priority_queue:
             i += 1
             dist, (x,y) = heap.heappop(priority_queue)
 
-            if (x,y) == self.starting_point:
-                return previous_node, dist
+            if (x,y) in finish_line:
+                return previous_node, (x,y), dist
 
             visited[x,y] = True
 
@@ -161,7 +163,7 @@ class PathGenerator:
                 self.marker_pub.publish(marker)
 
             # Force the search to go down at the start in order to complete a whole lap
-            if (x,y) in finish_line:
+            if False: # (x,y) in finish_line:
                 new_x = x - 1
                 new_y = y
 
@@ -176,40 +178,45 @@ class PathGenerator:
                     new_x = x + delta_x
                     new_y = y + delta_y 
 
-                    # The loop is only completed if the start point is reached from above
-                    if (new_x,new_y) == self.starting_point and new_x == x - 1:
-                        new_costs = nodeCosts[(x,y)] + weight
-                        if new_costs < nodeCosts[(new_x,new_y)]:
-                            previous_node[(new_x,new_y)] = (x,y)
-                            nodeCosts[(new_x,new_y)] = new_costs
-                            heap.heappush(priority_queue, (new_costs, (new_x,new_y)))
-
                     if visited[new_x, new_y]:
                         continue
 
                     if safe_area[new_x, new_y] == 1:
+                        if ((new_x,new_y) in finish_line and new_x == x + 1) or (new_x,new_y) not in finish_line:
+                            new_costs = nodeCosts[(x,y)] + weight
+                            if new_costs < nodeCosts[(new_x,new_y)]:
+                                previous_node[(new_x,new_y)] = (x,y)
+                                nodeCosts[(new_x,new_y)] = new_costs
+                                heap.heappush(priority_queue, (new_costs, (new_x,new_y)))
+
+                    # The loop is only completed if the start point is reached from above
+                    if (new_x,new_y) in finish_line and new_x == x + 1:
                         new_costs = nodeCosts[(x,y)] + weight
                         if new_costs < nodeCosts[(new_x,new_y)]:
                             previous_node[(new_x,new_y)] = (x,y)
                             nodeCosts[(new_x,new_y)] = new_costs
                             heap.heappush(priority_queue, (new_costs, (new_x,new_y)))
-    
+
+                    
+        rospy.logerr("No path found from startpoint to finish line! Reduce the self.safety_margin parameter")
+
     @timing
     def shortest_path(self, map_msg, safe_area, finish_line_start, finish_line_end, neighborhood):
         "Use Dijkstra with a 4-neighborhood or an 8-neighborhood"
 
-        previous_node, dist = self.dijkstra(map_msg, safe_area, finish_line_start, finish_line_end, neighborhood)
-        x = finish_line_start[0]
-        one_before_finish_line = [(x-1,y) for y in range(finish_line_start[1], finish_line_end[1] + 1)]
+        previous_node, finish_point1, dist = self.dijkstra(map_msg, safe_area, self.starting_point, finish_line_start, finish_line_end, neighborhood)
 
         shortest_path = Path()
         pos_x, pos_y = self.convert_grid_cell_to_position(self.starting_point[0],self.starting_point[1])
         self.append_pose(map_msg, shortest_path, pos_x, pos_y)
+
+        # previous_node_flying_lap, finish_point2, dist = self.dijkstra(map_msg, safe_area, finish_point1, finish_line_start, finish_line_end, neighborhood)
+
         
-        node = previous_node[self.starting_point]
+        node = previous_node[finish_point1]
         i = 0
         # the shortest path can move on the finish line at the start
-        while node not in one_before_finish_line:
+        while node != self.starting_point:
             i += 1
             node = previous_node[node]
 
@@ -217,6 +224,7 @@ class PathGenerator:
                 pos_x, pos_y = self.convert_grid_cell_to_position(node[0],node[1])
                 self.append_pose(map_msg, shortest_path, pos_x, pos_y)
         
+        shortest_path.poses = shortest_path.poses[::-1]
         return shortest_path, dist
     
     @timing
@@ -290,11 +298,10 @@ class PathGenerator:
                     stack.append((x - 1, y))
         
         return map_binary == 2
+    
 
     
     def map_callback(self, map_msg):
-        rospy.loginfo(f"Map Header: {map_msg.header}")
-        rospy.loginfo(f"Map info: {map_msg.info}")
 
         map_binary = self.preprocess_map(map_msg)
         rospy.loginfo(f"number of free grid cells: {np.sum(map_binary)}")
@@ -311,8 +318,8 @@ class PathGenerator:
         neighborhood4 = [(0,1,1), (0,-1,1), (1,0,1), (-1,0,1)]
         neighborhood8 = [(0,1,1), (0,-1,1), (1,0,1), (-1,0,1), (1,1,np.sqrt(2)), (1,-1,np.sqrt(2)), (-1,1, np.sqrt(2)), (-1,1, np.sqrt(2))]
 
-        shortest_path, distance = self.shortest_path(map_msg, safe_area, finish_line_start, finish_line_end, neighborhood4)
-        rospy.loginfo(f"Length of shortest path: {self.map_res * distance} meters")
+        # shortest_path, distance = self.shortest_path(map_msg, safe_area, finish_line_start, finish_line_end, neighborhood4)
+        # rospy.loginfo(f"Length of shortest path: {self.map_res * distance} meters")
 
         shortest_path, distance = self.shortest_path(map_msg, safe_area, finish_line_start, finish_line_end, neighborhood8)
         rospy.loginfo(f"Length of shortest path (with diagonals): {self.map_res * distance} meters")
