@@ -48,6 +48,7 @@ class pure_pursuit:
         self.speed_percentage = 0.6
         self.n_log = 50
         self.multilap = True
+        self.min_curvature = 0.1
 
         self.path = Path() 
         self.actual_path = Path()
@@ -200,7 +201,7 @@ class pure_pursuit:
         self.path_error = goal_transformed.y
 
         curvature = 2 * goal_transformed.y / pow(self.L, 2)
-        R = 1 / curvature
+        R = 1 / max(curvature,self.min_curvature)
 
         # self.steering_angle = 1 / np.tan(curvature * 0.3302)
         self.steering_angle = np.arctan(0.3302 * curvature)
