@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys
+import os
 import numpy as np
 import skimage
 import time
@@ -12,6 +13,7 @@ from rviz_functions import visualize_point
 
 
 import rospy
+import rospkg
 from sensor_msgs.msg import LaserScan
 from ackermann_msgs.msg import AckermannDriveStamped
 from nav_msgs.msg import Odometry, OccupancyGrid, Path
@@ -54,7 +56,7 @@ class PathGenerator:
         # Controller parameters
         self.sparsity = 5 
         self.scale = 1 # by which factor to downscale the map resolution before performing the path generation
-        self.safety_margin = 0.7 # in meters
+        self.safety_margin = 0.2 # in meters
         self.occupancy_treshhold = 10 # pixel below this treshold (in percent) we consider free space
     
 
@@ -115,8 +117,12 @@ class PathGenerator:
         toc = time.time()
         rospy.loginfo(f"Time for binary erosion: {toc - tic}")
 
-        self.save_map_image(driveable_area, '~/F1Tenth/maps/driveable_area.png')
-        self.save_map_image(eroded_map, '~/F1Tenth/maps/eroded_map.png')
+        rospack = rospkg.RosPack()
+        path = os.path.join(rospack.get_path('pure_pursuit'), "maps")
+        if not os.path.exists(path):
+            os.makedirs(path)
+        self.save_map_image(driveable_area, f"{path}/driveable_area.png")
+        self.save_map_image(eroded_map, f"{path}/eroded_map.png")
 
         return eroded_map
     

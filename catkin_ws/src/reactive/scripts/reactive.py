@@ -198,8 +198,7 @@ class FollowTheGap:
 
 
     def follow_the_gap(self, scan_msg):
-        dist_threshold = 0.6
-        safety_radius = 0.5
+        dist_threshold = 0.8
         ttc_threshold = 1.5
 
         min_angle = -100
@@ -271,7 +270,7 @@ class FollowTheGap:
 
         ### Compute the desired driving speed based on our current time-to-collision and steering angle
 
-        self.speed = self.compute_speed(scan_msg, ttc_front)*self.speed_percentage
+        self.speed = 0.5
 
         ### Publish speed and steering angle
 

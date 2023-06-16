@@ -1,4 +1,5 @@
 <launch>
+    <include file="$(find razor_imu_9dof)/launch/razor-pub.launch"/>
     <node name="ukf_odom" pkg="robot_localization" type="ukf_localization_node" clear_params="true">
         <rosparam command="load" file="$(find reactive)/params/ukf_racecar.yaml" />
     </node>

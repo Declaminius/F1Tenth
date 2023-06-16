@@ -45,7 +45,7 @@ class pure_pursuit:
         # Tuneable parameters
         # self.L = 2
         self.L_factor = 2.
-        self.speed_percentage = 0.6
+        self.speed_percentage = 0.1
         self.n_log = 50
         self.multilap = True
         self.min_curvature = 0.1

@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<launch>
+  <node name="planner" pkg="pure_pursuit" type="planner.py" output = "screen"/>
+  <include file="$(find reactive)/launch/amcl_racecar.launch">
+    <arg name="map" default="$(find reactive)/maps/Jun16.yaml"/>
+  </include>
+  <node name="tracker" pkg="pure_pursuit" type="pure_pursuit.py" output = "screen"/>
+</launch>
