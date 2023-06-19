@@ -227,7 +227,7 @@ class pure_pursuit:
 
         self.publish_drive(self.speed, self.steering_angle)
         self.actual_path_pub.publish(self.actual_path)
-        self.visualize_point(goal[0], goal[1])
+        visualize_point(goal[0], goal[1])
         # self.visualize_point(start_pose[0], start_pose[1])
 
         self.path_pub.publish(self.path)

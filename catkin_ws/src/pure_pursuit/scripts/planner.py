@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys
+import os
 import numpy as np
 import skimage
 import time
@@ -12,6 +13,7 @@ from rviz_functions import visualize_point
 
 
 import rospy
+import rospkg
 from sensor_msgs.msg import LaserScan
 from ackermann_msgs.msg import AckermannDriveStamped
 from nav_msgs.msg import Odometry, OccupancyGrid, Path
@@ -52,7 +54,7 @@ class PathGenerator:
 
 
         # Controller parameters
-        self.sparsity = 5 
+        self.sparsity = 5
         self.scale = 1 # by which factor to downscale the map resolution before performing the path generation
         self.safety_margin = 0.7 # in meters
         self.occupancy_treshhold = 10 # pixel below this treshold (in percent) we consider free space
@@ -67,7 +69,6 @@ class PathGenerator:
         Shouldn't we use /gt_pose messages to determine the inital pose of the robot, or can we assume it to always be at (0,0)?
         """
 
-        # TODO: Calculate shortest path without downscaling the map
         self.map_width = int(np.ceil(map_msg.info.width/self.scale))
         self.map_height = int(np.ceil(map_msg.info.height/self.scale))
         self.map_res = map_msg.info.resolution*self.scale
@@ -107,7 +108,7 @@ class PathGenerator:
         skimage.io.imsave(path, skimage.img_as_ubyte(255*map_image), check_contrast=False)
         rospy.loginfo(f"Saved map image to {path}")
     
-    def erode_map(self, driveable_area):
+    def erode_map(self, driveable_area, save_maps = False):
         radius = int(self.safety_margin/self.map_res)
 
         tic = time.time()
@@ -115,8 +116,13 @@ class PathGenerator:
         toc = time.time()
         rospy.loginfo(f"Time for binary erosion: {toc - tic}")
 
-        self.save_map_image(driveable_area, '~/F1Tenth/maps/driveable_area.png')
-        self.save_map_image(eroded_map, '~/F1Tenth/maps/eroded_map.png')
+        if save_maps:
+            rospack = rospkg.RosPack()
+            path = f"{rospack.get_path('pure_pursuit')}/maps"
+            if not os.path.exists(path):
+                os.makedirs(path)
+            self.save_map_image(driveable_area, f'{path}/driveable_area.png')
+            self.save_map_image(eroded_map, f'{path}/eroded_map.png')
 
         return eroded_map
     
@@ -134,9 +140,9 @@ class PathGenerator:
         priority_queue = []
 
         nodeCosts = defaultdict(lambda: float('inf'))
-        start = (starting_point[0] + 1, starting_point[1])
-        nodeCosts[start] = 0
-        heap.heappush(priority_queue, (0, start))
+        first_step = (starting_point[0] + 1, starting_point[1])
+        nodeCosts[first_step] = 0
+        heap.heappush(priority_queue, (0, first_step))
         # for cell in finish_line:
         #     if cell == self.starting_point:
         #         visited[cell] = True
@@ -144,7 +150,7 @@ class PathGenerator:
         #         nodeCosts[cell] = 0
         #         heap.heappush(priority_queue, (0, cell))
 
-        previous_node = {start: starting_point}
+        previous_node = {first_step: starting_point}
 
         i = 0
         while priority_queue:
@@ -205,24 +211,22 @@ class PathGenerator:
         "Use Dijkstra with a 4-neighborhood or an 8-neighborhood"
 
         previous_node, finish_point1, dist = self.dijkstra(map_msg, safe_area, self.starting_point, finish_line_start, finish_line_end, neighborhood)
-
         shortest_path = Path()
         pos_x, pos_y = self.convert_grid_cell_to_position(self.starting_point[0],self.starting_point[1])
         self.append_pose(map_msg, shortest_path, pos_x, pos_y)
 
-        # previous_node_flying_lap, finish_point2, dist = self.dijkstra(map_msg, safe_area, finish_point1, finish_line_start, finish_line_end, neighborhood)
+        previous_node_flying_lap, finish_point2, dist = self.dijkstra(map_msg, safe_area, finish_point1, finish_line_start, finish_line_end, neighborhood)
 
-        
-        node = previous_node[finish_point1]
-        i = 0
-        # the shortest path can move on the finish line at the start
-        while node != self.starting_point:
-            i += 1
-            node = previous_node[node]
+        for start, finish, backtrack_dict in zip((finish_point1, self.starting_point), (finish_point2, finish_point1), (previous_node_flying_lap, previous_node)):    
+            node = backtrack_dict[finish]
+            i = 0
+            while node != start:
+                i += 1
+                node = backtrack_dict[node]
 
-            if (i % self.sparsity) == 0:
-                pos_x, pos_y = self.convert_grid_cell_to_position(node[0],node[1])
-                self.append_pose(map_msg, shortest_path, pos_x, pos_y)
+                if (i % self.sparsity) == 0:
+                    pos_x, pos_y = self.convert_grid_cell_to_position(node[0],node[1])
+                    self.append_pose(map_msg, shortest_path, pos_x, pos_y)
         
         shortest_path.poses = shortest_path.poses[::-1]
         return shortest_path, dist
@@ -310,7 +314,7 @@ class PathGenerator:
         rospy.loginfo(f"number of driveable grid cells: {np.sum(driveable_area)}")
 
         finish_line_start, finish_line_end = self.calculate_finish_line(driveable_area)    
-        safe_area = self.erode_map(driveable_area)
+        safe_area = self.erode_map(driveable_area, save_maps = True)
         rospy.loginfo(f"number of safe grid cells: {np.sum(safe_area)}")
 
         
