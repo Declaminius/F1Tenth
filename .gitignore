@@ -10,3 +10,4 @@ maps/
 bag_files/
 f1tenth_system/
 f1tenth_simulator/
+*.py[cod]

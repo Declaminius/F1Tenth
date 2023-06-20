@@ -9,7 +9,7 @@ import heapq as heap
 from functools import wraps
 
 from bspline import approximate_b_spline_path
-from rviz_functions import visualize_point
+from rviz_functions import visualize_point, visualize_finish_line
 
 
 import rospy
@@ -17,7 +17,7 @@ import rospkg
 from sensor_msgs.msg import LaserScan
 from ackermann_msgs.msg import AckermannDriveStamped
 from nav_msgs.msg import Odometry, OccupancyGrid, Path
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Point
 from visualization_msgs.msg import Marker
 
 
@@ -41,24 +41,29 @@ class PathGenerator:
     """
 
     def __init__(self):
-        # Subscribers
-
-        self.map_sub = rospy.Subscriber("/map", OccupancyGrid, self.map_callback, queue_size=1)
-
-        # Publishers
-
-        self.drive_pub = rospy.Publisher("/nav", AckermannDriveStamped, queue_size = 1000)
-        self.marker_pub = rospy.Publisher("/visualization_marker", Marker, queue_size = 1000)
-        self.path_pub = rospy.Publisher('/path', Path, latch=True, queue_size=1)
-        self.path2_pub = rospy.Publisher('/path2', Path, latch=True, queue_size=1)
-
 
         # Controller parameters
         self.sparsity = 5 
         self.scale = 1 # by which factor to downscale the map resolution before performing the path generation
-        self.safety_margin = 0.2 # in meters
+        self.safety_margin = 0 # in meters
         self.occupancy_treshhold = 10 # pixel below this treshold (in percent) we consider free space
-    
+
+        # Image path
+        rospack = rospkg.RosPack()
+        self.image_path = os.path.join(rospack.get_path('pure_pursuit'), "maps")
+        if not os.path.exists(self.image_path):
+            os.makedirs(self.image_path)
+
+        # Subscribers
+        self.map_sub = rospy.Subscriber("/map", OccupancyGrid, self.map_callback, queue_size=1)
+
+        # Publishers
+        self.drive_pub = rospy.Publisher("/nav", AckermannDriveStamped, queue_size = 1000)
+        self.marker_pub = rospy.Publisher("/visualization_marker", Marker, queue_size = 1000)
+        self.start_marker_pub = rospy.Publisher("/start_marker", Marker, latch=True, queue_size = 1000)
+        self.finish_line_marker_pub = rospy.Publisher("/finish_line_marker", Marker, latch=True, queue_size = 1000)
+        self.path_pub = rospy.Publisher('/path', Path, latch=True, queue_size=1)
+        self.path2_pub = rospy.Publisher('/path2', Path, latch=True, queue_size=1)
 
     
     def preprocess_map(self, map_msg):
@@ -73,16 +78,28 @@ class PathGenerator:
         self.map_width = int(np.ceil(map_msg.info.width/self.scale))
         self.map_height = int(np.ceil(map_msg.info.height/self.scale))
         self.map_res = map_msg.info.resolution*self.scale
+
+        rospy.loginfo(f"width: {self.map_width}")
+        rospy.loginfo(f"height: {self.map_height}")
+        rospy.loginfo(f"resolution: {self.map_res}")
         
-        map_data = np.array(map_msg.data).reshape((map_msg.info.width, map_msg.info.height)).T
-        map_data = skimage.measure.block_reduce(map_data, (self.scale,self.scale), np.min)
+        
+        map_data = np.array(map_msg.data).reshape((map_msg.info.height, map_msg.info.width)).T
+        # map_data = skimage.measure.block_reduce(map_data, (self.scale,self.scale), np.min)
 
         # Set unknown values to be occupied
         map_data[map_data == - 1] = 100
-        map_binary = (map_data < self.occupancy_treshhold).astype(int)
 
         # TODO: Maybe replace hardcoded initial position? /gt_pose?
         self.starting_point = self.convert_position_to_grid_cell(0, 0)
+
+        #TODO: Smoothen the likelihood field before converting to binary
+        map_binary = (map_data < self.occupancy_treshhold).astype(int)
+        self.save_map_image(map_binary, f"{self.image_path}/map_binary.png")
+
+        
+        
+        
 
         return map_binary
     
@@ -91,38 +108,49 @@ class PathGenerator:
         # Maybe adjust to calculate the finish line perpendicular to the inital orientation of the car?
         x = self.starting_point[0]
         y = self.starting_point[1]
+
+        start_marker = visualize_point(0,0,r=1,g=0,b=0,time=0)
+        self.start_marker_pub.publish(start_marker)
+
+        finish_line_poses = []
+
         left_end = y
         right_end = y
 
         while driveable_area[x, right_end] == 1:
             right_end += 1
+            pos_x,pos_y = self.convert_grid_cell_to_position(x,right_end)
+            finish_line_poses.append(Point(pos_x,pos_y,0))
 
         while driveable_area[x, left_end] == 1:
-            left_end -= 1  
+            left_end -= 1
+            pos_x,pos_y = self.convert_grid_cell_to_position(x,left_end)
+            finish_line_poses.append(Point(pos_x,pos_y,0))
 
-        # rospy.loginfo(f"{right_end=}, {left_end=}")
+        finish_line_marker = visualize_finish_line(finish_line_poses)
+        self.finish_line_marker_pub.publish(finish_line_marker)
         return (x, left_end), (x, right_end)
 
-    def save_map_image(self, map, path):
+    def save_map_image(self, map, location):
         map_image = np.flip(np.flip(map, 1), 0)
 
-        skimage.io.imsave(path, skimage.img_as_ubyte(255*map_image), check_contrast=False)
-        rospy.loginfo(f"Saved map image to {path}")
+        skimage.io.imsave(location, skimage.img_as_ubyte(255*map_image), check_contrast=False)
+        rospy.loginfo(f"Saved map image to {location}")
     
     def erode_map(self, driveable_area):
         radius = int(self.safety_margin/self.map_res)
 
         tic = time.time()
-        eroded_map = skimage.morphology.binary_erosion(driveable_area, footprint = np.ones((2*radius,2*radius)))
+        if radius > 0:
+            eroded_map = skimage.morphology.binary_erosion(driveable_area, footprint = np.ones((2*radius,2*radius)))
+        else:
+            eroded_map = driveable_area
         toc = time.time()
         rospy.loginfo(f"Time for binary erosion: {toc - tic}")
 
-        rospack = rospkg.RosPack()
-        path = os.path.join(rospack.get_path('pure_pursuit'), "maps")
-        if not os.path.exists(path):
-            os.makedirs(path)
-        self.save_map_image(driveable_area, f"{path}/driveable_area.png")
-        self.save_map_image(eroded_map, f"{path}/eroded_map.png")
+
+        self.save_map_image(driveable_area, f"{self.image_path}/driveable_area.png")
+        self.save_map_image(eroded_map, f"{self.image_path}/eroded_map.png")
 
         return eroded_map
     
@@ -315,7 +343,7 @@ class PathGenerator:
         driveable_area = self.fill4(map_binary, self.starting_point[0], self.starting_point[1])
         rospy.loginfo(f"number of driveable grid cells: {np.sum(driveable_area)}")
 
-        finish_line_start, finish_line_end = self.calculate_finish_line(driveable_area)    
+        finish_line_start, finish_line_end = self.calculate_finish_line(driveable_area)
         safe_area = self.erode_map(driveable_area)
         rospy.loginfo(f"number of safe grid cells: {np.sum(safe_area)}")
 
@@ -344,7 +372,7 @@ class PathGenerator:
 def main(args):
     rospy.init_node("planner", anonymous=True)
     follow_the_gap = PathGenerator()
-    # rospy.sleep(0.1)
+    rospy.sleep(0.1)
     rospy.spin()
 
 if __name__=='__main__':

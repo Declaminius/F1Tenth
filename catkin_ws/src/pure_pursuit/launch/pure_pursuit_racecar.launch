@@ -1,8 +1,13 @@
 <?xml version="1.0"?>
 <launch>
   <node name="planner" pkg="pure_pursuit" type="planner.py" output = "screen"/>
-  <include file="$(find reactive)/launch/amcl_racecar.launch">
+  <!-- <include file="$(find reactive)/launch/amcl_racecar.launch">
     <arg name="map" default="$(find reactive)/maps/Jun16.yaml"/>
-  </include>
+  </include> -->
+
+  <arg name="map" default="$(find reactive)/maps/Jun16.yaml"/>
+  <node name="map_server" pkg="map_server" type="map_server" args="$(arg map)">
+    <param name="frame_id" value="map"/>
+  </node>
   <node name="tracker" pkg="pure_pursuit" type="pure_pursuit.py" output = "screen"/>
 </launch>
