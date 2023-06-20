@@ -50,7 +50,7 @@ class PathGenerator:
         self.drive_pub = rospy.Publisher("/nav", AckermannDriveStamped, queue_size = 1000)
         self.marker_pub = rospy.Publisher("/visualization_marker", Marker, queue_size = 1000)
         self.path_pub = rospy.Publisher('/path', Path, latch=True, queue_size=1)
-        self.path2_pub = rospy.Publisher('/path2', Path, latch=True, queue_size=1)
+        self.path_flying_lap_pub = rospy.Publisher('/path_flying_lap', Path, latch=True, queue_size=1)
 
 
         # Controller parameters
@@ -81,15 +81,15 @@ class PathGenerator:
         map_binary = (map_data < self.occupancy_treshhold).astype(int)
 
         # TODO: Maybe replace hardcoded initial position? /gt_pose?
-        self.starting_point = self.convert_position_to_grid_cell(0, 0)
+        self.start_point = self.convert_position_to_grid_cell(0, 0)
 
         return map_binary
     
     def calculate_finish_line(self, driveable_area):
         # TODO: Currently, we assume the car is always facing straight forward at the start
         # Maybe adjust to calculate the finish line perpendicular to the inital orientation of the car?
-        x = self.starting_point[0]
-        y = self.starting_point[1]
+        x = self.start_point[0]
+        y = self.start_point[1]
         left_end = y
         right_end = y
 
@@ -143,13 +143,6 @@ class PathGenerator:
         first_step = (starting_point[0] + 1, starting_point[1])
         nodeCosts[first_step] = 0
         heap.heappush(priority_queue, (0, first_step))
-        # for cell in finish_line:
-        #     if cell == self.starting_point:
-        #         visited[cell] = True
-        #     else:
-        #         nodeCosts[cell] = 0
-        #         heap.heappush(priority_queue, (0, cell))
-
         previous_node = {first_step: starting_point}
 
         i = 0
@@ -168,35 +161,16 @@ class PathGenerator:
                 marker = visualize_point(pos_x,pos_y)
                 self.marker_pub.publish(marker)
 
-            # Force the search to go down at the start in order to complete a whole lap
-            if False: # (x,y) in finish_line:
-                new_x = x - 1
-                new_y = y
+            for delta_x, delta_y, weight in neighborhood:
+                new_x = x + delta_x
+                new_y = y + delta_y 
+
+                if visited[new_x, new_y]:
+                    continue
 
                 if safe_area[new_x, new_y] == 1:
-                    new_costs = nodeCosts[(x,y)] + 1
-                    if new_costs < nodeCosts[(new_x,new_y)]:
-                        previous_node[(new_x,new_y)] = (x,y)
-                        nodeCosts[(new_x,new_y)] = new_costs
-                        heap.heappush(priority_queue, (new_costs, (new_x,new_y)))
-            else:
-                for delta_x, delta_y, weight in neighborhood:
-                    new_x = x + delta_x
-                    new_y = y + delta_y 
-
-                    if visited[new_x, new_y]:
-                        continue
-
-                    if safe_area[new_x, new_y] == 1:
-                        if ((new_x,new_y) in finish_line and new_x == x + 1) or (new_x,new_y) not in finish_line:
-                            new_costs = nodeCosts[(x,y)] + weight
-                            if new_costs < nodeCosts[(new_x,new_y)]:
-                                previous_node[(new_x,new_y)] = (x,y)
-                                nodeCosts[(new_x,new_y)] = new_costs
-                                heap.heappush(priority_queue, (new_costs, (new_x,new_y)))
-
-                    # The loop is only completed if the start point is reached from above
-                    if (new_x,new_y) in finish_line and new_x == x + 1:
+                    # The loop is only completed if the finish line is reached from the bottom
+                    if ((new_x,new_y) in finish_line and new_x == x + 1) or (new_x,new_y) not in finish_line:
                         new_costs = nodeCosts[(x,y)] + weight
                         if new_costs < nodeCosts[(new_x,new_y)]:
                             previous_node[(new_x,new_y)] = (x,y)
@@ -207,29 +181,26 @@ class PathGenerator:
         rospy.logerr("No path found from startpoint to finish line! Reduce the self.safety_margin parameter")
 
     @timing
-    def shortest_path(self, map_msg, safe_area, finish_line_start, finish_line_end, neighborhood):
+    def shortest_path(self, map_msg, safe_area, start_point, finish_line_start, finish_line_end, neighborhood):
         "Use Dijkstra with a 4-neighborhood or an 8-neighborhood"
 
-        previous_node, finish_point1, dist = self.dijkstra(map_msg, safe_area, self.starting_point, finish_line_start, finish_line_end, neighborhood)
+        previous_node, finish_point, dist = self.dijkstra(map_msg, safe_area, start_point, finish_line_start, finish_line_end, neighborhood)
         shortest_path = Path()
-        pos_x, pos_y = self.convert_grid_cell_to_position(self.starting_point[0],self.starting_point[1])
+        pos_x, pos_y = self.convert_grid_cell_to_position(self.start_point[0],self.start_point[1])
         self.append_pose(map_msg, shortest_path, pos_x, pos_y)
+    
+        node = previous_node[finish_point]
+        i = 0
+        while node != start_point:
+            i += 1
+            node = previous_node[node]
 
-        previous_node_flying_lap, finish_point2, dist = self.dijkstra(map_msg, safe_area, finish_point1, finish_line_start, finish_line_end, neighborhood)
-
-        for start, finish, backtrack_dict in zip((finish_point1, self.starting_point), (finish_point2, finish_point1), (previous_node_flying_lap, previous_node)):    
-            node = backtrack_dict[finish]
-            i = 0
-            while node != start:
-                i += 1
-                node = backtrack_dict[node]
-
-                if (i % self.sparsity) == 0:
-                    pos_x, pos_y = self.convert_grid_cell_to_position(node[0],node[1])
-                    self.append_pose(map_msg, shortest_path, pos_x, pos_y)
+            if (i % self.sparsity) == 0:
+                pos_x, pos_y = self.convert_grid_cell_to_position(node[0],node[1])
+                self.append_pose(map_msg, shortest_path, pos_x, pos_y)
         
         shortest_path.poses = shortest_path.poses[::-1]
-        return shortest_path, dist
+        return shortest_path, finish_point, dist
     
     @timing
     def optimize_raceline(self, map_msg, shortest_path):
@@ -310,11 +281,11 @@ class PathGenerator:
         map_binary = self.preprocess_map(map_msg)
         rospy.loginfo(f"number of free grid cells: {np.sum(map_binary)}")
 
-        driveable_area = self.fill4(map_binary, self.starting_point[0], self.starting_point[1])
+        driveable_area = self.fill4(map_binary, self.start_point[0], self.start_point[1])
         rospy.loginfo(f"number of driveable grid cells: {np.sum(driveable_area)}")
 
         finish_line_start, finish_line_end = self.calculate_finish_line(driveable_area)    
-        safe_area = self.erode_map(driveable_area, save_maps = True)
+        safe_area = self.erode_map(driveable_area, save_maps = False)
         rospy.loginfo(f"number of safe grid cells: {np.sum(safe_area)}")
 
         
@@ -325,17 +296,19 @@ class PathGenerator:
         # shortest_path, distance = self.shortest_path(map_msg, safe_area, finish_line_start, finish_line_end, neighborhood4)
         # rospy.loginfo(f"Length of shortest path: {self.map_res * distance} meters")
 
-        shortest_path, distance = self.shortest_path(map_msg, safe_area, finish_line_start, finish_line_end, neighborhood8)
+        shortest_path, finish_point, distance = self.shortest_path(map_msg, safe_area, self.start_point, finish_line_start, finish_line_end, neighborhood8)
         rospy.loginfo(f"Length of shortest path (with diagonals): {self.map_res * distance} meters")
 
-        optimized_path, distance = self.optimize_raceline(map_msg, shortest_path)
-        rospy.loginfo(f"Length of optimized path (with diagonals): {distance} meters")
+        shortest_path_flying_lap, _, distance_flying_lap = self.shortest_path(map_msg, safe_area, finish_point, finish_line_start, finish_line_end, neighborhood8)
+        rospy.loginfo(f"Length of shortest path (with diagonals): {self.map_res * distance_flying_lap} meters")
 
-        shortest_path.header = map_msg.header
-        self.path_pub.publish(shortest_path)
+        for path, publisher in zip((shortest_path, shortest_path_flying_lap),(self.path_pub, self.path_flying_lap_pub)):
+            optimized_path, distance = self.optimize_raceline(map_msg, path)
+            rospy.loginfo(f"Length of optimized path (with diagonals): {distance} meters")
 
-        optimized_path.header = map_msg.header
-        self.path2_pub.publish(optimized_path)
+            optimized_path.header = map_msg.header
+            publisher.publish(optimized_path)
+
 
 
 
