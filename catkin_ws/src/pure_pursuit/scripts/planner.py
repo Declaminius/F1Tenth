@@ -45,7 +45,7 @@ class PathGenerator:
         # Controller parameters
         self.sparsity = 5 
         self.scale = 1 # by which factor to downscale the map resolution before performing the path generation
-        self.safety_margin = 0 # in meters
+        self.safety_margin = 0.5 # in meters
         self.occupancy_treshhold = 10 # pixel below this treshold (in percent) we consider free space
 
         # Image path
