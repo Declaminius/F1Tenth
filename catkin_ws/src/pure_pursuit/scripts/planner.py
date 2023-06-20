@@ -78,10 +78,12 @@ class PathGenerator:
         self.map_width = int(np.ceil(map_msg.info.width/self.scale))
         self.map_height = int(np.ceil(map_msg.info.height/self.scale))
         self.map_res = map_msg.info.resolution*self.scale
+        self.map_origin = map_msg.info.origin.position
 
         rospy.loginfo(f"width: {self.map_width}")
         rospy.loginfo(f"height: {self.map_height}")
         rospy.loginfo(f"resolution: {self.map_res}")
+        rospy.loginfo(f"origin: {self.map_origin}")
         
         
         map_data = np.array(map_msg.data).reshape((map_msg.info.height, map_msg.info.width)).T
@@ -294,16 +296,16 @@ class PathGenerator:
     def convert_position_to_grid_cell(self, pos_x, pos_y):
         "Takes a position in meters and converts it to the corresponding grid cell in the OccupancyGrid"
 
-        index_x = int(pos_x/self.map_res + self.map_height/2)
-        index_y = int(pos_y/self.map_res + self.map_width/2)
+        index_x = int((pos_x-self.map_origin.x)/self.map_res)
+        index_y = int((pos_y-self.map_origin.y)/self.map_res)
 
         return index_x, index_y
     
     def convert_grid_cell_to_position(self, index_x, index_y):
         "Takes a tuple (i,j) of indices on the grid and converts it to its coordinates in meters."
         
-        pos_x = (index_x - self.map_height/2)*self.map_res
-        pos_y = (index_y - self.map_width/2)*self.map_res
+        pos_x = index_x*self.map_res + self.map_origin.x
+        pos_y = index_y*self.map_res + self.map_origin.y
 
         return pos_x, pos_y
 
