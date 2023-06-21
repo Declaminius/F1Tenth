@@ -18,6 +18,7 @@ from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
 from nav_msgs.msg import OccupancyGrid
 from nav_msgs.msg import Odometry, Path
+from std_msgs.msg import Int32, Float32
 
 #Local imports
 from rviz_functions import visualize_point
@@ -90,6 +91,9 @@ class pure_pursuit:
         self.lidar_sub = rospy.Subscriber(lidarscan_topic, LaserScan, self.lidar_callback, queue_size=1)
 
         self.drive_pub = rospy.Publisher(drive_topic, AckermannDriveStamped, queue_size=1)
+        self.L_pub = rospy.Publisher('lookahead_dist', Float32, queue_size=1)
+        self.goal_pose_index_pub = rospy.Publisher('/goal_pose_index', Int32, queue_size=100)
+        self.start_pose_index_pub = rospy.Publisher('/start_pose_index', Int32, queue_size=100)
         self.marker_pub = rospy.Publisher("/marker_goal", Marker, queue_size = 1000)
         self.actual_path_pub = rospy.Publisher("/actual_path", Path, latch=True, queue_size=1)
 
@@ -144,6 +148,7 @@ class pure_pursuit:
         # self.L = 0.59259259259259 * self.velocity + 1.8518518518519 if self.velocity > sys.float_info.min else 2.
         # self.L = 0.81481481481482 * self.speed + 0.2962962962963 if self.speed > sys.float_info.min else 1.5
         self.L = 0.35 * self.velocity + 1 if self.velocity > sys.float_info.min else 1.
+        self.L_pub.publish(Float32(self.L))
         # self.L *= self.L_factor
 
         poses_stamped = self.path.poses
@@ -227,8 +232,11 @@ class pure_pursuit:
 
         self.publish_drive(self.speed, self.steering_angle)
         self.actual_path_pub.publish(self.actual_path)
-        self.visualize_point(goal[0], goal[1])
+        marker = visualize_point(goal[0], goal[1])
+        self.marker_pub.publish(marker)
         # self.visualize_point(start_pose[0], start_pose[1])
+
+        self.start_pose_index_pub.publish(Int32(start_index))
 
         self.path_pub.publish(self.path)
     
