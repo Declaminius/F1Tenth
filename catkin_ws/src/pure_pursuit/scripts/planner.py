@@ -43,8 +43,7 @@ class PathGenerator:
     def __init__(self):
 
         # Controller parameters
-        self.sparsity = 5 
-        self.scale = 1 # by which factor to downscale the map resolution before performing the path generation
+        self.sparsity = 5
         self.safety_margin = 0.5 # in meters
         self.occupancy_treshhold = 10 # pixel below this treshold (in percent) we consider free space
 
@@ -74,19 +73,12 @@ class PathGenerator:
         Shouldn't we use /gt_pose messages to determine the inital pose of the robot, or can we assume it to always be at (0,0)?
         """
 
-        self.map_width = int(np.ceil(map_msg.info.width/self.scale))
-        self.map_height = int(np.ceil(map_msg.info.height/self.scale))
-        self.map_res = map_msg.info.resolution*self.scale
-        self.map_origin = map_msg.info.origin.position
-
-        rospy.loginfo(f"width: {self.map_width}")
-        rospy.loginfo(f"height: {self.map_height}")
-        rospy.loginfo(f"resolution: {self.map_res}")
-        rospy.loginfo(f"origin: {self.map_origin}")
-        
+        self.map_width = map_msg.info.width
+        self.map_height = map_msg.info.height
+        self.map_res = map_msg.info.resolution
+        self.map_origin = map_msg.info.origin.position        
         
         map_data = np.array(map_msg.data).reshape((map_msg.info.height, map_msg.info.width)).T
-        # map_data = skimage.measure.block_reduce(map_data, (self.scale,self.scale), np.min)
 
         # Set unknown values to be occupied
         map_data[map_data == - 1] = 100

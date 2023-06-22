@@ -6,4 +6,5 @@
   </include>
   <node name="planner" pkg="pure_pursuit" type="planner.py" output = "screen"/>
   <node name="tracker" pkg="pure_pursuit" type="pure_pursuit.py" output = "screen"/>
+  <!-- <node name="rqt_plot" pkg="rqt_plot" type="rqt_plot"/> -->
 </launch>
