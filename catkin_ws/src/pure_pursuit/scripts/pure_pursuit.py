@@ -44,8 +44,7 @@ class pure_pursuit:
         path_flying_lap_topic = '/path_flying_lap'
 
         # Tuneable parameters
-        self.L_factor = 2.
-        self.speed_percentage = 1
+        self.speed_percentage = 0.2
         self.max_steering_angle = 0.4189
 
         # Multilap settings
@@ -171,9 +170,8 @@ class pure_pursuit:
 
         # self.L = 0.59259259259259 * self.velocity + 1.8518518518519 if self.velocity > sys.float_info.min else 2.
         # self.L = 0.81481481481482 * self.speed + 0.2962962962963 if self.speed > sys.float_info.min else 1.5
-        self.L = 0.35 * self.velocity + 1
+        self.L = 0.35 * self.velocity + 0.5
         self.L_pub.publish(Float32(self.L))
-        # self.L *= self.L_factor
 
         if self.first_lap:
             poses_stamped = self.path.poses
@@ -203,8 +201,8 @@ class pure_pursuit:
         self.goal_pose = goal_transformed
         self.path_error = goal_transformed.y
 
-        curvature = 2 * goal_transformed.y / pow(self.L, 2)
-        self.steering_angle = np.arctan(0.3302 * curvature)
+        self.curvature = 2 * goal_transformed.y / pow(self.L, 2)
+        self.steering_angle = np.arctan(0.3302 * self.curvature)
         self.steering_angle = np.clip(self.steering_angle, -0.4189, 0.4189)
 
         self.speed = self.compute_speed()*self.speed_percentage
@@ -241,9 +239,6 @@ class pure_pursuit:
 
         # alpha = np.arcsin(self.goal_pose.y / self.L)
 
-        if self.goal_pose.x < 0:
-            return 0.1
-
         alpha = self.steering_angle
         # rospy.loginfo_throttle(1, "steering angle: " + str(alpha))
 
@@ -252,9 +247,7 @@ class pure_pursuit:
 
         projected_path_error = dt + self.L * np.sin(alpha)
 
-        # ttc = self.ttc_array[self.myScanIndex(self.scan_msg, np.degrees(alpha))]
-        ttc = self.ttc
-        speed = min(7, max(0.25, 7 * (1 - np.exp(-0.75*ttc))))
+        speed = min(7, max(0.25, 7 * (1 - np.exp(-0.75*self.ttc))))
         
         # clip speed by steering angle
         speed /= 10. * pow(self.steering_angle, 2) + 1
@@ -278,7 +271,7 @@ class pure_pursuit:
         self.actual_path.poses.append(cur_pose)
 
 def main(args):
-    rospy.init_node("pure_pursuit_node", anonymous=True)
+    rospy.init_node("pure_pursuit", anonymous=True)
     rfgs = pure_pursuit()
     rospy.sleep(0.1)
     # with open("/home/larisa/F1Tenth/path.json", "r") as path_file:

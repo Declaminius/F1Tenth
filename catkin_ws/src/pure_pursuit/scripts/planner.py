@@ -310,7 +310,7 @@ class PathGenerator:
         rospy.loginfo(f"number of driveable grid cells: {np.sum(driveable_area)}")
 
         finish_line_start, finish_line_end = self.calculate_finish_line(driveable_area)    
-        safe_area = self.erode_map(driveable_area, save_maps = False)
+        safe_area = self.erode_map(driveable_area, save_maps = True)
         rospy.loginfo(f"number of safe grid cells: {np.sum(safe_area)}")
 
         
