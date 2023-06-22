@@ -117,6 +117,7 @@ class Vehicle:
         self.path_sub = rospy.Subscriber(path_topic, Path, self.path_callback, queue_size=1)
         self.lidar_sub = rospy.Subscriber(lidarscan_topic, LaserScan, self.lidar_callback, queue_size=1)
         self.odom_sub = rospy.Subscriber(odom_topic, Odometry, self.odom_callback, queue_size=1)
+        # self.map_sub = rospy.Subscriber("/map", OccupancyGrid, self.map_callback, queue_size=1)
 
         self.tf_buffer = tf2_ros.Buffer(rospy.Duration(1.0))  # tf buffer length
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
@@ -177,6 +178,20 @@ class Vehicle:
 
             self.drive_mode = 'FOLLOW THE GAP'
             self.drive_pub.publish(drive_msg)
+
+    def map_callback(self, data):
+        self.map = data
+        self.map_stamp = data.header.stamp
+        self.map_matrix = np.array(data.data).reshape((data.info.height, data.info.width))
+        # buff = BytesIO()
+        # data.serialize(buff)
+        # serialized_bytes = buff.getvalue()
+
+        # # if self.map_file is not None:
+        # rospack = rospkg.RosPack()
+        # with open(f"{rospack.get_path('vehicle')}/map.bin", "wb") as f:
+        #     rospy.loginfo_throttle(1, "MAP: " + str(buff.getbuffer()))
+        #     f.write(buff.getbuffer())
 
     def obstacles_update_callback(self, data):
         if self.map is None:
@@ -283,6 +298,14 @@ class Vehicle:
             if self.multilap and i == len(poses):
                 i = 0
         self.goal = poses[i - 1]    
+    
+        # buff = BytesIO()
+        # data.serialize(buff)
+        # # serialized_bytes = buff.getvalue()
+
+        # rospack = rospkg.RosPack()
+        # with open(f"{rospack.get_path('vehicle')}/path.bin", "wb") as f:
+        #     f.write(buff.getbuffer())
 
 def main(args):
     rospy.init_node("vehicle_node", anonymous=True)
@@ -291,7 +314,17 @@ def main(args):
     rfgs.map = rospy.wait_for_message('/costmap_node/costmap/costmap', OccupancyGrid)
     rfgs.map_matrix = np.array(rfgs.map.data).reshape((rfgs.map.info.height, rfgs.map.info.width))
     rospy.sleep(0.1)
+    rospack = rospkg.RosPack()
+    # with open(f"{rospack.get_path('vehicle')}/map.bin", "rb") as f:
+    #     buf = BytesIO(f.read())
+    #     rfgs.map.deserialize(buf.getvalue())
+    #     rfgs.map_matrix = np.matrix(preprocess_map(rfgs.map))
+    #     # rfgs.set_likelihood_field(rfgs.compute_likelihood_field())
+    #     rospy.sleep(0.1)
     rospy.spin()  
+
+    # with open(f"{rospack.get_path('vehicle')}/src/map.bin", "wb") as f:
+        # rfgs.map_file = f
 
 if __name__ == '__main__':
     main(sys.argv)

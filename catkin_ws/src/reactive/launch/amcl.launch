@@ -1,6 +1,5 @@
 <launch>
   <include file="$(find reactive)/launch/ukf.launch"/>
-  <include file="$(find reactive)/launch/reactive.launch"/>
   <node pkg="tf2_ros" type="static_transform_publisher" name="map_to_odom_frame" 
       args="0.0 0.0 0.0     0.0 0.0 0.0 /map /odom_frame" />
   <node pkg="amcl" type="amcl" name="amcl" output="screen">

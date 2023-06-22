@@ -85,7 +85,8 @@ class pure_pursuit:
         self.tf_buffer = tf2_ros.Buffer(rospy.Duration(100.0))  # tf buffer length
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
 
-        self.path_pub = rospy.Subscriber(path_topic, Path, self.path_callback, queue_size=1)
+        self.path_pub = rospy.Publisher('/path2', Path, latch=True, queue_size=1)
+        # self.path_pub = rospy.Subscriber(path_topic, Path, self.path_callback, queue_size=1)
         self.odom_sub = rospy.Subscriber(odom_topic, Odometry, self.odom_callback, queue_size=1)
         self.lidar_sub = rospy.Subscriber(lidarscan_topic, LaserScan, self.lidar_callback, queue_size=1)
 
@@ -236,6 +237,8 @@ class pure_pursuit:
         # self.visualize_point(start_pose[0], start_pose[1])
 
         self.start_pose_index_pub.publish(Int32(start_index))
+
+        self.path_pub.publish(self.path)
     
     def path_callback(self, path_msg):
         self.path = path_msg
@@ -313,6 +316,18 @@ def main(args):
     rospy.init_node("pure_pursuit_node", anonymous=True)
     rfgs = pure_pursuit()
     rospy.sleep(0.1)
+    # with open("/home/larisa/F1Tenth/path.json", "r") as path_file:
+    #     rfgs.path_file = path_file
+    #     path_dict = json.load(path_file)
+    #     rfgs.path.header = path_dict['header']
+    #     rfgs.path.poses = [PoseStamped(p['header'], Pose(Point(p['pose']['position']['x'], p['pose']['position']['x'], 1),
+    #                                                      Quaternion(p['pose']['orientation']['x'], p['pose']['orientation']['y'], p['pose']['orientation']['z'], p['pose']['orientation']['w']))) for p in path_dict['poses']]
+    
+    rospack = rospkg.RosPack()
+    with open(f"{rospack.get_path('vehicle')}/path.bin", "rb") as path_file:
+        rfgs.path_file = path_file
+        buf = BytesIO(path_file.read())
+        rfgs.path.deserialize(buf.getvalue())
     rospy.spin()
 
 if __name__ == '__main__':

@@ -1,14 +1,14 @@
 <launch>
     <!-- <include file="$(find reactive)/launch/reactive.launch"/> -->
-    <node pkg="tf2_ros" type="static_transform_publisher" name="map_to_odom_frame" 
-      args="0.0 0.0 0.0     0.0 0.0 0.0 /map /odom_frame" />
+    <!-- <node pkg="tf2_ros" type="static_transform_publisher" name="map_to_odom_frame" 
+      args="0.0 0.0 0.0     0.0 0.0 0.0 /map /odom_frame" /> -->
       <!-- <node pkg="tf2_ros" type="static_transform_publisher" name="odom_to_base_link_frame" 
       args="0.0 0.0 0.0     0.0 0.0 0.0 1.0 /odom_frame /base_link" />  -->
     <!-- <arg name="map_file" default="$(find reactive)/map/map1.yaml"/> -->
     <node name="ukf_odom" pkg="robot_localization" type="ukf_localization_node" clear_params="true">
         <rosparam command="load" file="$(find reactive)/params/ukf.yaml" />
     </node>
-        <!-- <remap from="/odometry/filtered" to="/odom" />  -->
+        <remap from="/odometry/filtered" to="/odom" /> 
      <!-- <node pkg="tf2_ros" type="static_transform_publisher" name="odom_to_map_frame" 
       args="0.0 0.0 0.0     0.0 0.0 0.0 /odom_frame /map" /> -->
       <!-- <node name="ukf_odom_map" pkg="robot_localization" type="ukf_localization_node" clear_params="true">
