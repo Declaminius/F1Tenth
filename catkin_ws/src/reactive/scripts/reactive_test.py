@@ -1,0 +1,360 @@
+#!/usr/bin/env python3
+from __future__ import print_function
+import sys
+import math
+import numpy as np
+import copy
+from itertools import groupby
+
+#ROS Imports
+import rospy
+from sensor_msgs.msg import Image, LaserScan
+from ackermann_msgs.msg import AckermannDriveStamped, AckermannDrive
+from nav_msgs.msg import Odometry
+from std_msgs.msg import Float32, Int32
+from visualization_msgs.msg import Marker
+
+
+#WALL FOLLOW PARAMS
+ANGLE_RANGE = 270 # Hokuyo 10LX has 270 degrees scan
+CAR_LENGTH = 0.50 # Traxxas Rally is 20 inches or 0.5 meters
+
+class FollowTheGap:
+    """ Implements the follow the gap algorithm
+    """
+    def __init__(self):
+        #Topics & Subs, Pubs
+        lidarscan_topic = '/scan'
+        drive_topic = '/reactive_nav'
+
+        self.lookahead_dist = 2
+        self.margin = 0.3
+        self.velocity = 0
+
+        self.speed = 0
+        self.steering_angle = 0
+        self.ttc = 0
+
+        self.min_speed = 0.5
+
+        self.lidar_sub = rospy.Subscriber("/scan", LaserScan, self.lidar_callback, queue_size=1)
+        self.odom_sub = rospy.Subscriber("/odom", Odometry, self.odom_callback, queue_size=1)
+
+        self.velocity_pub = rospy.Publisher("/velocity_topic", Float32, queue_size = 1000)
+        self.steering_angle_pub = rospy.Publisher("/steering_angle_topic", Float32, queue_size = 1000)
+        self.desired_speed_pub = rospy.Publisher("/desired_speed_topic", Float32, queue_size = 1000)
+        self.drive_pub = rospy.Publisher(drive_topic, AckermannDriveStamped, queue_size = 1000)
+        self.marker_pub = rospy.Publisher("/visualization_marker", Marker, queue_size = 1000)
+        self.gap_pub = rospy.Publisher("/gap_viz", LaserScan, queue_size = 1000)   
+    
+    def myScanAngle(self, scan_msg, index):
+        # returns angle in radians
+
+        return scan_msg.angle_min + index * scan_msg.angle_increment
+    
+    def myScanIndex(self, scan_msg, angle):
+        # expects an angle in degrees and outputs the respective index in the scan_ranges array.
+        # angle: between -135 to 135 degrees, where 0 degrees is directly to the front
+
+        rad_angle = angle * math.pi / 180.0
+
+        if not (scan_msg.angle_min <= rad_angle <= scan_msg.angle_max):
+            rospy.loginfo("ANGLE out of range")
+            return 100.
+
+        index = int((rad_angle - scan_msg.angle_min) / scan_msg.angle_increment)
+
+        return index
+
+    def myGetRange(self, scan_msg, angle):
+        # scan_msg: single message from topic /scan
+        # angle: between -135 to 135 degrees, where 0 degrees is directly to the front
+        # Outputs length in meters to object with angle in lidar scan field of view
+
+        index = self.myScanIndex(scan_msg, angle)
+
+        if scan_msg.ranges[index] == math.inf or scan_msg.ranges[index] == math.nan: 
+            rospy.loginfo("No LIDAR data for angle")
+            return 100.
+
+        range = scan_msg.ranges[index]
+        return range
+
+    def compute_speed(self, factor):
+        # rospy.loginfo_throttle(1, 'ttc: "%s"'%self.ttc)
+        speed = min(7, max(0.5, 7* (1 - math.exp(-0.75 * self.ttc))))
+        clip = math.exp(5*abs(self.steering_angle) - 2)
+        diff = speed - clip
+        if diff > self.min_speed:
+            speed = factor*diff
+        else:
+            speed = self.min_speed
+        
+        return speed
+    
+    def compute_largest_gap(self, scan_msg, scan_ranges):
+        ### Improvement: instead of simply maximizing the length of the gap;
+        ### we also include the distance of the largest scan within the gap
+        ### by maximizing gap_length*gap_distance
+
+        max_gap_start = 0
+        max_gap_length = 0
+        max_gap_distance = 0
+        gap_start = 0
+        gap_length = 0
+        gap_distance = 0
+        scan_msg.intensities = np.array(scan_ranges)
+
+        for (i, scan_range) in enumerate(scan_ranges):
+            if scan_range > 0.:
+                gap_length += 1
+                if scan_range > gap_distance:
+                    gap_distance = scan_range
+            else:
+                if gap_length*gap_distance > max_gap_length*max_gap_distance:
+                    max_gap_length = gap_length
+                    max_gap_start = gap_start
+                    max_gap_distance = gap_distance
+                scan_msg.intensities[gap_start:gap_start+gap_length] = 5
+                gap_start = i + 1
+                gap_length = 0
+                gap_distance = 0
+        if gap_start < len(scan_ranges):
+            scan_msg.intensities[gap_start:gap_start+gap_length] = 5
+        if gap_length > max_gap_length:
+            max_gap_length = gap_length
+            max_gap_start = gap_start
+            max_gap_distance = gap_distance
+
+        return max_gap_start, max_gap_length
+
+    def compute_steering_angle(self, scan_msg, best_point):
+        # some manual collision avoidance in case we are too close to the wall
+
+        if self.right_dist < self.margin and self.right_dist < self.left_dist:
+            steering_angle = np.pi/4 # 45 degrees left
+        elif self.left_dist < self.margin:
+            steering_angle = -np.pi/4 # 45 degrees right
+        else:
+            # Scale the steering angle according to distance to waypoint
+            steering_angle = self.myScanAngle(scan_msg, best_point)
+            steering_angle *= 2/max(0.1,self.best_distance)
+        
+        return steering_angle
+    
+    def choose_waypoint(self, scan_ranges, option = 1, num_points = 3):
+        # Returns the waypoint to which our car turns based on three possible options
+        # The waypoint is chosen within the largest gap
+        # options: 0, 1, 2
+
+        if option == 0:
+            ### Option 0: Choose furthest point within the largest gap
+            best_point = np.argmax(scan_ranges[self.max_gap_start: self.max_gap_end]) + self.max_gap_start
+            return best_point
+        elif option == 1:
+            ### Option 1: Choose middle point of the largest gap
+            best_point = self.max_gap_start + int(self.max_gap_length / 2)
+            return best_point
+        elif option == 2:
+            ### Option 3: Use an evenly distributed number of candidate waypoints within the largest gap
+            ### and choose the waypoint with is the farthest away
+            candidate_points = np.linspace(self.max_gap_start, self.max_gap_end, num_points+2, dtype = int)[1:-1]
+
+            best_point = None
+            best_dist = 0
+
+            for point in candidate_points:
+                if scan_ranges[point] > best_dist:
+                    best_dist = scan_ranges[point]
+                    best_point = point
+            return best_point
+
+        else:
+            print("Invalid option!")
+    
+    def publish_drive_message(self):
+        drive_msg = AckermannDriveStamped()
+        drive_msg.header.stamp = rospy.Time.now()
+        drive_msg.header.frame_id = "laser"
+        drive_msg.drive.steering_angle = self.steering_angle
+        drive_msg.drive.speed = self.speed
+        self.desired_speed_pub.publish(self.speed)
+        self.drive_pub.publish(drive_msg)
+        self.steering_angle_pub.publish(self.steering_angle*180/np.pi)
+
+
+    def follow_the_gap(self, scan_msg):
+        dist_threshold = 1.5
+        safety_radius = 0.5
+        ttc_threshold = 1.25
+
+        min_angle = -75
+        max_angle = 75
+        min_angle_index = self.myScanIndex(scan_msg, min_angle)
+        max_angle_index = self.myScanIndex(scan_msg, max_angle)
+
+        scan_ranges = np.array(scan_msg.ranges)
+        # disparities = np.diff(scan_ranges)
+        # disparities[abs(disparities) < 0.2] = 0
+        # for (i,d) in enumerate(disparities):
+        #     if d > 0:
+        #         safety_angle = np.arcsin(min(self.margin/scan_ranges[i],0.9))
+        #         safety_index = int(safety_angle/ scan_msg.angle_increment)
+                
+        #         for sgn in (-1,1):
+        #             for j in range(safety_index):
+        #                 if i+sgn*j >= len(scan_ranges):
+        #                     break
+        #                 elif disparities[i+sgn*j] != 0:
+        #                     break
+        #                 else:
+        #                     scan_ranges[i+sgn*j] = scan_ranges[i]
+        scan_angles = np.linspace(scan_msg.angle_min, scan_msg.angle_max, len(scan_ranges))
+        self.right_dist = np.min(scan_ranges[:self.myScanIndex(scan_msg, 0)])
+        self.left_dist = np.min(scan_ranges[self.myScanIndex(scan_msg, 0):])
+
+        ### New version: Set all points with a projected ttc below a certain threshold to 0
+
+        projected_speed_array = self.velocity * np.cos(scan_angles)
+        projected_speed_array[projected_speed_array < 0.1] = 0.1
+        ttc_array = (np.maximum(0,scan_ranges - self.margin)) / projected_speed_array
+        self.ttc = np.min(ttc_array)
+        scan_ranges[ttc_array < ttc_threshold] = 0
+        
+        ### Old version: Put a safety bubble around the closest distance returned by the LiDar
+
+        # self.min_dist_index = np.argmin(scan_ranges[min_angle_index:max_angle_index]) + min_angle_index
+        # self.min_dist = scan_ranges[self.min_dist_index]
+
+        # if self.min_dist - self.lookahead_dist > safety_radius:
+        #     safety_angle = np.arcsin(safety_radius/self.min_dist)
+        # else:
+        #     safety_angle = 0.4
+
+        # safety_left = self.myScanIndex(scan_msg, math.degrees(self.myScanAngle(scan_msg, self.min_dist_index) - safety_angle))
+        # safety_right = self.myScanIndex(scan_msg, math.degrees(self.myScanAngle(scan_msg, self.min_dist_index) + safety_angle))
+        # scan_ranges[safety_left: safety_right] = 0
+
+        # min_dist_angle = self.myScanAngle(scan_msg, self.min_dist_index)
+        # for i in range(len(scan_ranges)):
+        #     if self.min_dist * (abs(self.myScanAngle(scan_msg, i) - self.myScanAngle(scan_msg, self.min_dist_index))) < safety_radius:
+        #         scan_ranges[i] = 0.
+
+        ### Put a safety bubble around the car
+        
+        scan_ranges[scan_ranges < dist_threshold] = 0
+
+        ### Set backward ranges to zero to prevent the car turning around in sharp corners
+
+        scan_ranges[:min_angle_index] = 0
+        scan_ranges[max_angle_index:] = 0
+
+
+        ### Compute the gap maximizing length*distance
+
+        self.max_gap_start, self.max_gap_length = self.compute_largest_gap(scan_msg, scan_ranges)
+        self.max_gap_end = self.max_gap_start + self.max_gap_length
+
+        ### Choose the best point within the largest gap
+
+        self.best_point = self.choose_waypoint(scan_ranges)
+        self.best_distance = scan_ranges[self.best_point]
+
+        ### Compute the steering angle based on the best point and our distance towards it
+        ### In addition, perform emergency steering in case we are too close to the wall
+
+        self.steering_angle = self.compute_steering_angle(scan_msg, self.best_point)
+
+        ### Compute the desired driving speed based on our current time-to-collision and steering angle
+
+        self.speed = self.compute_speed(factor = 1.25)
+
+        ### Publish speed and steering angle
+
+        self.publish_drive_message()
+
+        ### Visualize the largest gap
+
+        scan_msg.intensities[ttc_array < ttc_threshold] = 1
+        scan_msg.intensities[self.max_gap_start:self.max_gap_end] = 2
+        self.gap_pub.publish(scan_msg)
+
+        ### Visualize the waypoint we're driving towards
+
+        best_angle = self.myScanAngle(scan_msg, self.best_point)
+        self.visualize_point(self.best_distance*np.cos(best_angle), self.best_distance*np.sin(best_angle), r = 0, g = 1, b = 0)
+
+        # Visualize the car's speed and steering angle with an arrow
+
+        self.marker_viz(self.speed, self.steering_angle)
+
+
+    def lidar_callback(self, scan_msg):
+        self.follow_the_gap(scan_msg)
+
+    def odom_callback(self, odom_msg):
+        self.velocity = odom_msg.twist.twist.linear.x
+        self.velocity_pub.publish(self.velocity)
+
+
+    def visualize_point(self,x,y,frame='laser',r=1.0,g=0.0,b=1.0):
+        marker = Marker()
+        marker.header.frame_id = frame
+        marker.header.stamp = rospy.Time.now()
+        marker.id = 150
+        marker.type = marker.SPHERE
+        marker.action = marker.ADD
+        marker.scale.x = 1
+        marker.scale.y = 1
+        marker.scale.z = 1
+        marker.color.a = 1.0
+        marker.color.r = r
+        marker.color.g = g
+        marker.color.b = b
+        marker.pose.orientation.w = 1.0
+        marker.pose.position.x = x
+        marker.pose.position.y = y
+        marker.pose.position.z = 0
+        marker.lifetime = rospy.Duration(0.1)
+        self.marker_pub.publish(marker)
+
+    def marker_viz(self, speed, steering_angle):
+        marker = Marker()
+        marker.header.frame_id = "laser"
+        marker.header.stamp = rospy.Time.now()
+
+        # set shape, Arrow: 0; Cube: 1 ; Sphere: 2 ; Cylinder: 3
+        marker.type = 0
+        marker.id = 0
+
+        # Set the scale of the marker
+        marker.scale.x = self.speed
+        marker.scale.y = 0.1
+        marker.scale.z = 0.0
+
+        # Set the color
+        marker.color.r = 1.0
+        marker.color.g = 0.0
+        marker.color.b = 0.0
+        marker.color.a = 1.0
+
+        # Set the pose of the marker
+        marker.pose.position.x = 0.0
+        marker.pose.position.y = 0.0
+        marker.pose.position.z = 0.0
+        marker.pose.orientation.x = np.cos(steering_angle)
+        marker.pose.orientation.y = np.sin(steering_angle)
+        marker.pose.orientation.z = 0.0
+        marker.pose.orientation.w = 0.0
+
+        self.marker_pub.publish(marker)
+
+
+def main(args):
+    rospy.init_node("reactive", anonymous=True)
+    follow_the_gap = FollowTheGap()
+    rospy.sleep(0.1)
+    rospy.spin()
+
+if __name__=='__main__':
+	main(sys.argv)

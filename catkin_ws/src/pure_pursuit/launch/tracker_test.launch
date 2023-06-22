@@ -1,0 +1,5 @@
+<?xml version="1.0"?>
+<launch>
+  <node name="tracker" pkg="pure_pursuit" type="pure_pursuit_test.py" output = "screen"/>
+  <!-- <include file="$(find pure_pursuit)/launch/planner.launch"/> -->
+</launch>
