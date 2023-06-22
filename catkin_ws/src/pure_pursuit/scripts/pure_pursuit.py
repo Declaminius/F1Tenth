@@ -44,15 +44,19 @@ class pure_pursuit:
         drive_topic = '/pure_pursuit_nav'
         map_topic = '/map'
         odom_topic = '/odom'
-        path_topic = '/path2'
+        path_topic = '/path'
+        path_flying_lap_topic = '/path_flying_lap'
 
         # Tuneable parameters
         # self.L = 2
         self.L_factor = 2.
-        self.speed_percentage = 0.1
+        self.speed_percentage = 0.8
         self.n_log = 50
+
         self.multilap = True
         self.min_curvature = 0.1
+        self.laps = 0
+        self.checkpoint_reached = False
 
         self.path = Path() 
         self.actual_path = Path()
@@ -86,7 +90,9 @@ class pure_pursuit:
         self.tf_buffer = tf2_ros.Buffer(rospy.Duration(100.0))  # tf buffer length
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
 
-        self.path_pub = rospy.Subscriber(path_topic, Path, self.path_callback, queue_size=1)
+        
+        self.path_sub = rospy.Subscriber(path_topic, Path, self.path_callback, queue_size=1)
+        self.path_flying_lap_sub = rospy.Subscriber(path_flying_lap_topic, Path, self.path_flying_lap_callback, queue_size=1)
         self.odom_sub = rospy.Subscriber(odom_topic, Odometry, self.odom_callback, queue_size=1)
         self.lidar_sub = rospy.Subscriber(lidarscan_topic, LaserScan, self.lidar_callback, queue_size=1)
 
@@ -143,20 +149,25 @@ class pure_pursuit:
         if self.velocity < sys.float_info.min:
             self.prev_ground_path_index = None
 
-        # self.L = 8. * self.velocity if self.velocity > sys.float_info.min else 2.
-        # self.L  = 2
         # self.L = 0.59259259259259 * self.velocity + 1.8518518518519 if self.velocity > sys.float_info.min else 2.
         # self.L = 0.81481481481482 * self.speed + 0.2962962962963 if self.speed > sys.float_info.min else 1.5
         self.L = 0.35 * self.velocity + 1 if self.velocity > sys.float_info.min else 1.
         self.L_pub.publish(Float32(self.L))
         # self.L *= self.L_factor
 
-        poses_stamped = self.path.poses
+        if self.laps == 0:
+            poses_stamped = self.path.poses
+        else:
+            rospy.loginfo("New poses!")
+            poses_stamped = self.path_flying_lap.poses
         if len(poses_stamped) == 0:
             return
         
+        # Check if car has completed a real lap and not just driven backwards over the finish line!
+        checkpoint_index = len(poses_stamped)//2
+
         poses =  np.array([(p.pose.position.x, p.pose.position.y) for p in poses_stamped])
-        tree = spatial.KDTree(poses)
+        # tree = spatial.KDTree(poses)
 
         # find closest path point to current pose
         ground_pose = (self.ground_pose.position.x, self.ground_pose.position.y)
@@ -164,24 +175,27 @@ class pure_pursuit:
 
         if self.prev_ground_path_index is None:
             dists = np.linalg.norm(poses - ground_pose, axis=1)
-            # dx = [abs(ground_pose[1] - pose[0]) for pose in poses]
-            # dy = [abs(ground_pose[0] - pose[1]) for pose in poses]
-            # dists = np.hypot(dx, dy)
             self.prev_ground_path_index = np.argmin(dists)
             # rospy.loginfo_throttle(1, "start index.x: " + str(self.prev_ground_path_index))
 
-
         prev_dist = np.linalg.norm(poses[self.prev_ground_path_index] - ground_pose)
-        i = self.prev_ground_path_index + 1
+        i = self.prev_ground_path_index
         while i < len(poses):
             dist = np.linalg.norm(poses[i] - ground_pose)
             if dist > prev_dist:
                 break
             prev_dist = dist
             i += 1
-        # Start a new lap
-        if self.multilap and i == len(poses):
-            i = 1
+            if i == checkpoint_index:
+                rospy.loginfo("Checkpoint Charlie!")
+                self.checkpoint_reached = True
+            # Start a new lap
+            if self.multilap and i == len(poses):
+                if self.checkpoint_reached == True:
+                    rospy.loginfo("New lap")
+                    self.laps += 1
+                    self.checkpoint_reached = False
+                i = 1
         start_index = i - 1
         start_pose = poses[start_index]
         self.prev_ground_path_index = start_index
@@ -197,11 +211,14 @@ class pure_pursuit:
             if dist > self.L:
                 break
             i += 1
-        # Start a new lap
-        if self.multilap and i == len(poses):
-            i = 0
-                
-        goal = poses[i]
+            # Start a new lap
+            if self.multilap and i == len(poses):
+                if self.checkpoint_reached == True:
+                    rospy.loginfo("New lap")
+                    self.laps += 1
+                    self.checkpoint_reached = False
+                i = 1
+        goal = poses[i - 1]
         
         # path_points_in_range = tree.query_ball_point(start, self.L, return_sorted=True)
         # goal = poses[path_points_in_range[len(path_points_in_range) - 1]]
@@ -234,13 +251,14 @@ class pure_pursuit:
         self.actual_path_pub.publish(self.actual_path)
         marker = visualize_point(goal[0], goal[1])
         self.marker_pub.publish(marker)
-        # self.visualize_point(start_pose[0], start_pose[1])
 
         self.start_pose_index_pub.publish(Int32(start_index))
     
     def path_callback(self, path_msg):
         self.path = path_msg
-     
+
+    def path_flying_lap_callback(self, path_msg):
+        self.path_flying_lap = path_msg
 
     def publish_drive(self, speed, angle):
         drive_msg = AckermannDriveStamped()
@@ -265,7 +283,7 @@ class pure_pursuit:
             return 0.1
 
         alpha = self.steering_angle
-        # rospy.loginfo_throttle(1, "alpha: " + str(alpha))
+        # rospy.loginfo_throttle(1, "steering angle: " + str(alpha))
 
         # b = math.sqrt(pow(self.start_pose[0] - self.ground_pose.position.x, 2) + pow(self.start_pose[1] - self.ground_pose.position.y, 2))
         b = self.path_error
@@ -314,6 +332,18 @@ def main(args):
     rospy.init_node("pure_pursuit_node", anonymous=True)
     rfgs = pure_pursuit()
     rospy.sleep(0.1)
+    # with open("/home/larisa/F1Tenth/path.json", "r") as path_file:
+    #     rfgs.path_file = path_file
+    #     path_dict = json.load(path_file)
+    #     rfgs.path.header = path_dict['header']
+    #     rfgs.path.poses = [PoseStamped(p['header'], Pose(Point(p['pose']['position']['x'], p['pose']['position']['x'], 1),
+    #                                                      Quaternion(p['pose']['orientation']['x'], p['pose']['orientation']['y'], p['pose']['orientation']['z'], p['pose']['orientation']['w']))) for p in path_dict['poses']]
+    
+    # rospack = rospkg.RosPack()
+    # with open(f"{rospack.get_path('vehicle')}/path.bin", "rb") as path_file:
+    #     rfgs.path_file = path_file
+    #     buf = BytesIO(path_file.read())
+    #     rfgs.path.deserialize(buf.getvalue())
     rospy.spin()
 
 if __name__ == '__main__':

@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
 <launch>
-  <node name="planner" pkg="pure_pursuit" type="planner.py" output = "screen"/>
+  <node name="likelihood_field" pkg="vehicle" type="likelihood_field.py" output = "screen"/>
   <include file="$(find f1tenth_simulator)/launch/simulator.launch"/>
 </launch>
