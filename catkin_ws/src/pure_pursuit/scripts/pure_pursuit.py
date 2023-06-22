@@ -158,7 +158,6 @@ class pure_pursuit:
         if self.laps == 0:
             poses_stamped = self.path.poses
         else:
-            rospy.loginfo("New poses!")
             poses_stamped = self.path_flying_lap.poses
         if len(poses_stamped) == 0:
             return

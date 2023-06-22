@@ -107,8 +107,8 @@ class PathGenerator:
     def calculate_finish_line(self, driveable_area):
         # TODO: Currently, we assume the car is always facing straight forward at the start
         # Maybe adjust to calculate the finish line perpendicular to the inital orientation of the car?
-        x = self.starting_point[0]
-        y = self.starting_point[1]
+        x = self.start_point[0]
+        y = self.start_point[1]
 
         start_marker = visualize_point(0,0,r=1,g=0,b=0,time=0)
         self.start_marker_pub.publish(start_marker)
@@ -219,7 +219,7 @@ class PathGenerator:
 
         previous_node, finish_point, dist = self.dijkstra(map_msg, safe_area, start_point, finish_line_start, finish_line_end, neighborhood)
         shortest_path = Path()
-        pos_x, pos_y = self.convert_grid_cell_to_position(self.start_point[0],self.start_point[1])
+        pos_x, pos_y = self.convert_grid_cell_to_position(finish_point[0], finish_point[1])
         self.append_pose(map_msg, shortest_path, pos_x, pos_y)
     
         node = previous_node[finish_point]

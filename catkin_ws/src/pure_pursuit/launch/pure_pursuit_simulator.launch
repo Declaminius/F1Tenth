@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<launch>
+  <remap from="pure_pursuit_nav" to="nav"/>
+  <include file="$(find f1tenth_simulator)/launch/simulator.launch">
+    <arg name="map" default="$(find f1tenth_simulator)/maps/f1_aut_wide.yaml"/>
+  </include>
+  <node name="planner" pkg="pure_pursuit" type="planner.py" output = "screen"/>
+  <node name="tracker" pkg="pure_pursuit" type="pure_pursuit.py" output = "screen"/>
+</launch>
