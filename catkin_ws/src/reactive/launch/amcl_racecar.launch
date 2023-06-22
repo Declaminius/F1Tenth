@@ -1,9 +1,11 @@
 <launch>
+  <arg name="map" default="$(find reactive)/maps/Jun16.yaml"/>
+  
   <node name="odom_broadcaster" pkg="reactive" type="odom_broadcaster.py" output = "screen"/>
-  <node name="map_server" pkg="map_server" type="map_server" args="$(find reactive)/maps/arc_lab.yaml">
+  <node name="map_server" pkg="map_server" type="map_server" args="$(arg map)">
     <param name="frame_id" value="map"/>
   </node>
-  <!-- <include file="$(find reactive)/launch/ukf_racecar.launch"/> -->
+  <include file="$(find reactive)/launch/ukf_racecar.launch"/>
   <node pkg="amcl" type="amcl" name="amcl" output="screen">
   
     <!-- Publish scans from best pose at a max of 10 Hz -->
