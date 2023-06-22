@@ -33,7 +33,7 @@ class PointWrapper:
         self.margin = 0.3
         self.velocity=0
 
-class pure_pursuit:
+class PurePursuit:
     def __init__(self):
         #Topics & Subscriptions,Publishers
         lidarscan_topic = '/scan'
@@ -271,16 +271,9 @@ class pure_pursuit:
         self.actual_path.poses.append(cur_pose)
 
 def main(args):
-    rospy.init_node("pure_pursuit", anonymous=True)
+    rospy.init_node("pure_pursuit")
     rfgs = pure_pursuit()
     rospy.sleep(0.1)
-    # with open("/home/larisa/F1Tenth/path.json", "r") as path_file:
-    #     rfgs.path_file = path_file
-    #     path_dict = json.load(path_file)
-    #     rfgs.path.header = path_dict['header']
-    #     rfgs.path.poses = [PoseStamped(p['header'], Pose(Point(p['pose']['position']['x'], p['pose']['position']['x'], 1),
-    #                                                      Quaternion(p['pose']['orientation']['x'], p['pose']['orientation']['y'], p['pose']['orientation']['z'], p['pose']['orientation']['w']))) for p in path_dict['poses']]
-    
     # rospack = rospkg.RosPack()
     # with open(f"{rospack.get_path('vehicle')}/path.bin", "rb") as path_file:
     #     rfgs.path_file = path_file

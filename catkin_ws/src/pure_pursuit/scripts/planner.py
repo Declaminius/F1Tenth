@@ -36,14 +36,14 @@ def timing(f):
 
 
 
-class PathGenerator:
+class PathPlanner:
     """ Creating a path for the car to drive using only data from the /map topic.
     """
 
     def __init__(self):
 
-        # Controller parameters
-        self.sparsity = 5
+        # Planner parameters
+        self.sparsity = 5 # every n-th pixel will be added to the final path
         self.safety_margin = 0.5 # in meters
         self.occupancy_treshhold = 10 # pixel below this treshold (in percent) we consider free space
 
@@ -61,6 +61,7 @@ class PathGenerator:
         self.marker_pub = rospy.Publisher("/visualization_marker", Marker, queue_size = 1000)
         self.start_marker_pub = rospy.Publisher("/start_marker", Marker, latch=True, queue_size = 1000)
         self.finish_line_marker_pub = rospy.Publisher("/finish_line_marker", Marker, latch=True, queue_size = 1000)
+        self.pixel_path_pub = rospy.Publisher("/pixel_path", Path, latch=True, queue_size=1)
         self.path_pub = rospy.Publisher('/path', Path, latch=True, queue_size=1)
         self.path_flying_lap_pub = rospy.Publisher('/path_flying_lap', Path, latch=True, queue_size=1)
 
@@ -323,9 +324,10 @@ class PathGenerator:
 
         shortest_path, finish_point, distance = self.shortest_path(map_msg, safe_area, self.start_point, finish_line_start, finish_line_end, neighborhood8)
         rospy.loginfo(f"Length of shortest path (with diagonals): {self.map_res * distance} meters")
+        self.pixel_path_pub.publish(shortest_path)
 
         shortest_path_flying_lap, _, distance_flying_lap = self.shortest_path(map_msg, safe_area, finish_point, finish_line_start, finish_line_end, neighborhood8)
-        rospy.loginfo(f"Length of shortest path (with diagonals): {self.map_res * distance_flying_lap} meters")
+        rospy.loginfo(f"Length of shortest flying path (with diagonals): {self.map_res * distance_flying_lap} meters")
 
         for path, publisher in zip((shortest_path, shortest_path_flying_lap),(self.path_pub, self.path_flying_lap_pub)):
             optimized_path, distance = self.optimize_raceline(map_msg, path)
@@ -335,12 +337,9 @@ class PathGenerator:
             publisher.publish(optimized_path)
 
 
-
-
 def main(args):
-    rospy.init_node("planner", anonymous=True)
-    follow_the_gap = PathGenerator()
-    rospy.sleep(0.1)
+    rospy.init_node("planner")
+    path_planner = PathPlanner()
     rospy.spin()
 
 if __name__=='__main__':
