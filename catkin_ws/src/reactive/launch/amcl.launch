@@ -1,7 +1,7 @@
 <launch>
   <include file="$(find reactive)/launch/ukf.launch"/>
-  <node pkg="tf2_ros" type="static_transform_publisher" name="map_to_odom_frame" 
-      args="0.0 0.0 0.0     0.0 0.0 0.0 /map /odom_frame" />
+  <!-- <node pkg="tf2_ros" type="static_transform_publisher" name="map_to_odom_frame" 
+      args="0.0 0.0 0.0     0.0 0.0 0.0 /map /odom_frame" /> -->
   <node pkg="amcl" type="amcl" name="amcl" output="screen">
     <!-- Publish scans from best pose at a max of 10 Hz -->
     <param name="odom_model_type" value="diff"/>

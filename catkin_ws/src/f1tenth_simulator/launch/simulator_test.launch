@@ -45,5 +45,5 @@
 
   
   <!-- Launch RVIZ -->
-    <node pkg="rviz" type="rviz" name="rviz" args="-d $(find f1tenth_simulator)/launch/simulator.rviz" output="screen"/>
+    <node pkg="rviz" type="rviz" name="rviz" args="-d $(find f1tenth_simulator)/launch/vehicle.rviz" output="screen"/>
 </launch>

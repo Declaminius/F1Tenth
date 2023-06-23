@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <launch>
-  <include file="$(find f1tenth_simulator)/launch/simulator.launch"/>
+  <include file="$(find f1tenth_simulator)/launch/simulator_test.launch"/>
   <include file="$(find pure_pursuit)/launch/tracker_test.launch"/>
   <include file="$(find reactive)/launch/reactive_test.launch"/>
   <include file="$(find reactive)/launch/amcl.launch"/>
@@ -11,6 +11,6 @@
   </node>
 
   <node name="map_publisher" pkg="vehicle" type="map_publisher.py" output = "screen"/>
-  <node name="vehicle_node" pkg="vehicle" type="vehicle.py" output = "screen"/>
+  <node name="vehicle_node" pkg="vehicle" type="vehicle_test.py" output = "screen"/>
 
 </launch>
