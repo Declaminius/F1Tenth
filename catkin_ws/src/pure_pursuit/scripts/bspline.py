@@ -10,7 +10,7 @@ import pathlib
 sys.path.append(str(pathlib.Path(__file__).parent.parent.parent))
 
 import numpy as np
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 import scipy.interpolate as interpolate
 
 
@@ -120,28 +120,28 @@ def main():
     way_point_y = [0.0, -3.0, 1.0, 1.0, 3.0]
     n_course_point = 50  # sampling number
 
-    plt.subplots()
-    rax, ray, heading, curvature = approximate_b_spline_path(
-        way_point_x, way_point_y, n_course_point, s=0.5)
-    plt.plot(rax, ray, '-r', label="Approximated B-Spline path")
+    # plt.subplots()
+    # rax, ray, heading, curvature = approximate_b_spline_path(
+    #     way_point_x, way_point_y, n_course_point, s=0.5)
+    # plt.plot(rax, ray, '-r', label="Approximated B-Spline path")
 
-    plt.title("B-Spline approximation")
-    plt.plot(way_point_x, way_point_y, '-og', label="way points")
-    plt.grid(True)
-    plt.legend()
-    plt.axis("equal")
+    # plt.title("B-Spline approximation")
+    # plt.plot(way_point_x, way_point_y, '-og', label="way points")
+    # plt.grid(True)
+    # plt.legend()
+    # plt.axis("equal")
 
-    plt.subplots()
-    rix, riy, heading, curvature = interpolate_b_spline_path(
-        way_point_x, way_point_y, n_course_point)
-    plt.plot(rix, riy, '-b', label="Interpolated B-Spline path")
+    # plt.subplots()
+    # rix, riy, heading, curvature = interpolate_b_spline_path(
+    #     way_point_x, way_point_y, n_course_point)
+    # plt.plot(rix, riy, '-b', label="Interpolated B-Spline path")
 
-    plt.title("B-Spline interpolation")
-    plt.plot(way_point_x, way_point_y, '-og', label="way points")
-    plt.grid(True)
-    plt.legend()
-    plt.axis("equal")
-    plt.show()
+    # plt.title("B-Spline interpolation")
+    # plt.plot(way_point_x, way_point_y, '-og', label="way points")
+    # plt.grid(True)
+    # plt.legend()
+    # plt.axis("equal")
+    # plt.show()
 
 
 if __name__ == '__main__':
