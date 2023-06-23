@@ -36,15 +36,14 @@ def timing(f):
 
 
 
-class PathGenerator:
+class PathPlanner:
     """ Creating a path for the car to drive using only data from the /map topic.
     """
 
     def __init__(self):
 
-        # Controller parameters
-        self.sparsity = 5 
-        self.scale = 1 # by which factor to downscale the map resolution before performing the path generation
+        # Planner parameters
+        self.sparsity = 5 # every n-th pixel will be added to the final path
         self.safety_margin = 0.5 # in meters
         self.occupancy_treshhold = 10 # pixel below this treshold (in percent) we consider free space
 
@@ -62,8 +61,9 @@ class PathGenerator:
         self.marker_pub = rospy.Publisher("/visualization_marker", Marker, queue_size = 1000)
         self.start_marker_pub = rospy.Publisher("/start_marker", Marker, latch=True, queue_size = 1000)
         self.finish_line_marker_pub = rospy.Publisher("/finish_line_marker", Marker, latch=True, queue_size = 1000)
+        self.pixel_path_pub = rospy.Publisher("/pixel_path", Path, latch=True, queue_size=1)
         self.path_pub = rospy.Publisher('/path', Path, latch=True, queue_size=1)
-        self.path2_pub = rospy.Publisher('/path2', Path, latch=True, queue_size=1)
+        self.path_flying_lap_pub = rospy.Publisher('/path_flying_lap', Path, latch=True, queue_size=1)
 
     
     def preprocess_map(self, map_msg):
@@ -74,26 +74,18 @@ class PathGenerator:
         Shouldn't we use /gt_pose messages to determine the inital pose of the robot, or can we assume it to always be at (0,0)?
         """
 
-        # TODO: Calculate shortest path without downscaling the map
-        self.map_width = int(np.ceil(map_msg.info.width/self.scale))
-        self.map_height = int(np.ceil(map_msg.info.height/self.scale))
-        self.map_res = map_msg.info.resolution*self.scale
-        self.map_origin = map_msg.info.origin.position
-
-        rospy.loginfo(f"width: {self.map_width}")
-        rospy.loginfo(f"height: {self.map_height}")
-        rospy.loginfo(f"resolution: {self.map_res}")
-        rospy.loginfo(f"origin: {self.map_origin}")
-        
+        self.map_width = map_msg.info.width
+        self.map_height = map_msg.info.height
+        self.map_res = map_msg.info.resolution
+        self.map_origin = map_msg.info.origin.position        
         
         map_data = np.array(map_msg.data).reshape((map_msg.info.height, map_msg.info.width)).T
-        # map_data = skimage.measure.block_reduce(map_data, (self.scale,self.scale), np.min)
 
         # Set unknown values to be occupied
         map_data[map_data == - 1] = 100
 
         # TODO: Maybe replace hardcoded initial position? /gt_pose?
-        self.starting_point = self.convert_position_to_grid_cell(0, 0)
+        self.start_point = self.convert_position_to_grid_cell(0, 0)
 
         #TODO: Smoothen the likelihood field before converting to binary
         map_binary = (map_data < self.occupancy_treshhold).astype(int)
@@ -108,8 +100,8 @@ class PathGenerator:
     def calculate_finish_line(self, driveable_area):
         # TODO: Currently, we assume the car is always facing straight forward at the start
         # Maybe adjust to calculate the finish line perpendicular to the inital orientation of the car?
-        x = self.starting_point[0]
-        y = self.starting_point[1]
+        x = self.start_point[0]
+        y = self.start_point[1]
 
         start_marker = visualize_point(0,0,r=1,g=0,b=0,time=0)
         self.start_marker_pub.publish(start_marker)
@@ -139,7 +131,7 @@ class PathGenerator:
         skimage.io.imsave(location, skimage.img_as_ubyte(255*map_image), check_contrast=False)
         rospy.loginfo(f"Saved map image to {location}")
     
-    def erode_map(self, driveable_area):
+    def erode_map(self, driveable_area, save_maps = False):
         radius = int(self.safety_margin/self.map_res)
 
         tic = time.time()
@@ -150,9 +142,13 @@ class PathGenerator:
         toc = time.time()
         rospy.loginfo(f"Time for binary erosion: {toc - tic}")
 
-
-        self.save_map_image(driveable_area, f"{self.image_path}/driveable_area.png")
-        self.save_map_image(eroded_map, f"{self.image_path}/eroded_map.png")
+        if save_maps:
+            rospack = rospkg.RosPack()
+            path = f"{rospack.get_path('pure_pursuit')}/maps"
+            if not os.path.exists(path):
+                os.makedirs(path)
+            self.save_map_image(driveable_area, f'{path}/driveable_area.png')
+            self.save_map_image(eroded_map, f'{path}/eroded_map.png')
 
         return eroded_map
     
@@ -170,17 +166,10 @@ class PathGenerator:
         priority_queue = []
 
         nodeCosts = defaultdict(lambda: float('inf'))
-        start = (starting_point[0] + 1, starting_point[1])
-        nodeCosts[start] = 0
-        heap.heappush(priority_queue, (0, start))
-        # for cell in finish_line:
-        #     if cell == self.starting_point:
-        #         visited[cell] = True
-        #     else:
-        #         nodeCosts[cell] = 0
-        #         heap.heappush(priority_queue, (0, cell))
-
-        previous_node = {start: starting_point}
+        first_step = (starting_point[0] + 1, starting_point[1])
+        nodeCosts[first_step] = 0
+        heap.heappush(priority_queue, (0, first_step))
+        previous_node = {first_step: starting_point}
 
         i = 0
         while priority_queue:
@@ -198,35 +187,16 @@ class PathGenerator:
                 marker = visualize_point(pos_x,pos_y)
                 self.marker_pub.publish(marker)
 
-            # Force the search to go down at the start in order to complete a whole lap
-            if False: # (x,y) in finish_line:
-                new_x = x - 1
-                new_y = y
+            for delta_x, delta_y, weight in neighborhood:
+                new_x = x + delta_x
+                new_y = y + delta_y 
+
+                if visited[new_x, new_y]:
+                    continue
 
                 if safe_area[new_x, new_y] == 1:
-                    new_costs = nodeCosts[(x,y)] + 1
-                    if new_costs < nodeCosts[(new_x,new_y)]:
-                        previous_node[(new_x,new_y)] = (x,y)
-                        nodeCosts[(new_x,new_y)] = new_costs
-                        heap.heappush(priority_queue, (new_costs, (new_x,new_y)))
-            else:
-                for delta_x, delta_y, weight in neighborhood:
-                    new_x = x + delta_x
-                    new_y = y + delta_y 
-
-                    if visited[new_x, new_y]:
-                        continue
-
-                    if safe_area[new_x, new_y] == 1:
-                        if ((new_x,new_y) in finish_line and new_x == x + 1) or (new_x,new_y) not in finish_line:
-                            new_costs = nodeCosts[(x,y)] + weight
-                            if new_costs < nodeCosts[(new_x,new_y)]:
-                                previous_node[(new_x,new_y)] = (x,y)
-                                nodeCosts[(new_x,new_y)] = new_costs
-                                heap.heappush(priority_queue, (new_costs, (new_x,new_y)))
-
-                    # The loop is only completed if the start point is reached from above
-                    if (new_x,new_y) in finish_line and new_x == x + 1:
+                    # The loop is only completed if the finish line is reached from the bottom
+                    if ((new_x,new_y) in finish_line and new_x == x + 1) or (new_x,new_y) not in finish_line:
                         new_costs = nodeCosts[(x,y)] + weight
                         if new_costs < nodeCosts[(new_x,new_y)]:
                             previous_node[(new_x,new_y)] = (x,y)
@@ -237,22 +207,17 @@ class PathGenerator:
         rospy.logerr("No path found from startpoint to finish line! Reduce the self.safety_margin parameter")
 
     @timing
-    def shortest_path(self, map_msg, safe_area, finish_line_start, finish_line_end, neighborhood):
+    def shortest_path(self, map_msg, safe_area, start_point, finish_line_start, finish_line_end, neighborhood):
         "Use Dijkstra with a 4-neighborhood or an 8-neighborhood"
 
-        previous_node, finish_point1, dist = self.dijkstra(map_msg, safe_area, self.starting_point, finish_line_start, finish_line_end, neighborhood)
-
+        previous_node, finish_point, dist = self.dijkstra(map_msg, safe_area, start_point, finish_line_start, finish_line_end, neighborhood)
         shortest_path = Path()
-        pos_x, pos_y = self.convert_grid_cell_to_position(self.starting_point[0],self.starting_point[1])
+        pos_x, pos_y = self.convert_grid_cell_to_position(finish_point[0], finish_point[1])
         self.append_pose(map_msg, shortest_path, pos_x, pos_y)
-
-        # previous_node_flying_lap, finish_point2, dist = self.dijkstra(map_msg, safe_area, finish_point1, finish_line_start, finish_line_end, neighborhood)
-
-        
-        node = previous_node[finish_point1]
+    
+        node = previous_node[finish_point]
         i = 0
-        # the shortest path can move on the finish line at the start
-        while node != self.starting_point:
+        while node != start_point:
             i += 1
             node = previous_node[node]
 
@@ -261,7 +226,7 @@ class PathGenerator:
                 self.append_pose(map_msg, shortest_path, pos_x, pos_y)
         
         shortest_path.poses = shortest_path.poses[::-1]
-        return shortest_path, dist
+        return shortest_path, finish_point, dist
     
     @timing
     def optimize_raceline(self, map_msg, shortest_path):
@@ -342,11 +307,11 @@ class PathGenerator:
         map_binary = self.preprocess_map(map_msg)
         rospy.loginfo(f"number of free grid cells: {np.sum(map_binary)}")
 
-        driveable_area = self.fill4(map_binary, self.starting_point[0], self.starting_point[1])
+        driveable_area = self.fill4(map_binary, self.start_point[0], self.start_point[1])
         rospy.loginfo(f"number of driveable grid cells: {np.sum(driveable_area)}")
 
-        finish_line_start, finish_line_end = self.calculate_finish_line(driveable_area)
-        safe_area = self.erode_map(driveable_area)
+        finish_line_start, finish_line_end = self.calculate_finish_line(driveable_area)    
+        safe_area = self.erode_map(driveable_area, save_maps = True)
         rospy.loginfo(f"number of safe grid cells: {np.sum(safe_area)}")
 
         
@@ -357,24 +322,24 @@ class PathGenerator:
         # shortest_path, distance = self.shortest_path(map_msg, safe_area, finish_line_start, finish_line_end, neighborhood4)
         # rospy.loginfo(f"Length of shortest path: {self.map_res * distance} meters")
 
-        shortest_path, distance = self.shortest_path(map_msg, safe_area, finish_line_start, finish_line_end, neighborhood8)
+        shortest_path, finish_point, distance = self.shortest_path(map_msg, safe_area, self.start_point, finish_line_start, finish_line_end, neighborhood8)
         rospy.loginfo(f"Length of shortest path (with diagonals): {self.map_res * distance} meters")
+        self.pixel_path_pub.publish(shortest_path)
 
-        optimized_path, distance = self.optimize_raceline(map_msg, shortest_path)
-        rospy.loginfo(f"Length of optimized path (with diagonals): {distance} meters")
+        shortest_path_flying_lap, _, distance_flying_lap = self.shortest_path(map_msg, safe_area, finish_point, finish_line_start, finish_line_end, neighborhood8)
+        rospy.loginfo(f"Length of shortest flying path (with diagonals): {self.map_res * distance_flying_lap} meters")
 
-        shortest_path.header = map_msg.header
-        self.path_pub.publish(shortest_path)
+        for path, publisher in zip((shortest_path, shortest_path_flying_lap),(self.path_pub, self.path_flying_lap_pub)):
+            optimized_path, distance = self.optimize_raceline(map_msg, path)
+            rospy.loginfo(f"Length of optimized path (with diagonals): {distance} meters")
 
-        optimized_path.header = map_msg.header
-        self.path2_pub.publish(optimized_path)
-
+            optimized_path.header = map_msg.header
+            publisher.publish(optimized_path)
 
 
 def main(args):
-    rospy.init_node("planner", anonymous=True)
-    follow_the_gap = PathGenerator()
-    rospy.sleep(0.1)
+    rospy.init_node("planner")
+    path_planner = PathPlanner()
     rospy.spin()
 
 if __name__=='__main__':

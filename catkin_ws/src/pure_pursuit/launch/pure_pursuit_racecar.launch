@@ -1,13 +1,15 @@
 <?xml version="1.0"?>
 <launch>
+  <remap from="odom" to="/vesc/odom"/>
+  <remap from="pure_pursuit_nav" to="/vesc/high_level/ackermann_cmd_mux/input/nav_0" />
   <node name="planner" pkg="pure_pursuit" type="planner.py" output = "screen"/>
-  <!-- <include file="$(find reactive)/launch/amcl_racecar.launch">
-    <arg name="map" default="$(find reactive)/maps/Jun16.yaml"/>
-  </include> -->
-
-  <arg name="map" default="$(find reactive)/maps/Jun16.yaml"/>
+  <include file="$(find reactive)/launch/amcl_racecar.launch">
+    <arg name="map" default="$(find pure_pursuit)/maps/Jun22.yaml"/>
+  </include>
+<!-- 
+  <arg name="map" default="$(find pure_pursuit)/maps/Jun22.yaml"/>
   <node name="map_server" pkg="map_server" type="map_server" args="$(arg map)">
     <param name="frame_id" value="map"/>
-  </node>
-  <node name="tracker" pkg="pure_pursuit" type="pure_pursuit.py" output = "screen"/>
+  </node> -->
+  <node name="pure_pursuit" pkg="pure_pursuit" type="pure_pursuit.py" output = "screen"/>
 </launch>

@@ -6,6 +6,7 @@ catkin_ws/install_isolated/
 catkin_ws/abseil-cpp/
 maps/
 *.vscode
+*.pyc
 .rosinstall*
 bag_files/
 f1tenth_system/
