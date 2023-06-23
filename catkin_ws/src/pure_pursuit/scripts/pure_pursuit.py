@@ -41,7 +41,7 @@ class pure_pursuit:
     def __init__(self):
         #Topics & Subscriptions,Publishers
         lidarscan_topic = '/scan'
-        drive_topic = '/pure_pursuit_nav'
+        drive_topic = '/nav'
         map_topic = '/map'
         odom_topic = '/odom'
         path_topic = '/path2'
@@ -49,7 +49,7 @@ class pure_pursuit:
         # Tuneable parameters
         # self.L = 2
         self.L_factor = 2.
-        self.speed_percentage = 0.1
+        self.speed_percentage = 0.6
         self.n_log = 50
         self.multilap = True
         self.min_curvature = 0.1
@@ -76,7 +76,8 @@ class pure_pursuit:
 
         self.scan_msg = LaserScan()
 
-
+        self.curvature = 0.0
+        self.R = 0.
         self.path_error = 0.
 
         self.prev_ground_path_index = None
@@ -147,7 +148,8 @@ class pure_pursuit:
         # self.L  = 2
         # self.L = 0.59259259259259 * self.velocity + 1.8518518518519 if self.velocity > sys.float_info.min else 2.
         # self.L = 0.81481481481482 * self.speed + 0.2962962962963 if self.speed > sys.float_info.min else 1.5
-        self.L = 0.35 * self.velocity + 1 if self.velocity > sys.float_info.min else 1.
+        # self.L = 0.35 * self.velocity + 1 if self.velocity > sys.float_info.min else 1.
+        self.L = 0.15 * self.velocity + 0.5 if self.velocity > sys.float_info.min else 1.
         self.L_pub.publish(Float32(self.L))
         # self.L *= self.L_factor
 
@@ -210,13 +212,15 @@ class pure_pursuit:
         # transform goal point to vehicle coordinate frame
         transform = self.tf_buffer.lookup_transform("base_link", self.path.header.frame_id, rospy.Time())
         goal_transformed = tf2_geometry_msgs.do_transform_point(PointWrapper(Point(goal[0], goal[1], 1)), transform).point
-
         self.goal_pose = goal_transformed
     
         self.path_error = goal_transformed.y
 
         curvature = 2 * goal_transformed.y / pow(self.L, 2)
-        R = 1 / max(curvature,self.min_curvature)
+        self.curvature = curvature
+        # self.R = 1 / max(curvature,self.min_curvature)
+        self.R = 1 / curvature
+        rospy.loginfo("curvature: " + str(curvature))
 
         # self.steering_angle = 1 / np.tan(curvature * 0.3302)
         self.steering_angle = np.arctan(0.3302 * curvature)
@@ -275,6 +279,12 @@ class pure_pursuit:
 
         # ttc = self.ttc_array[self.myScanIndex(self.scan_msg, math.degrees(alpha))]
         ttc = self.ttc
+        if abs(self.curvature) < 0.1:
+            return 7
+        R = 1 / self.curvature
+        vel = self.velocity if self.velocity > sys.float_info.min else 7
+        a = 7 / 1 + 2 * math.pow(self.curvature, 2)
+        speed = a
         speed = min(7, max(0.25, 7 * (1 - math.exp(-0.75*ttc))))
         
         # clip speed by steering angle
