@@ -7,7 +7,7 @@
 
    <!-- Run the costmap node -->
   <node name="costmap_node" pkg="costmap_2d" type="costmap_2d_node" >
-    <rosparam file="$(find vehicle)/params/costmap.yaml" command="load" ns="costmap" />
+    <rosparam file="$(find vehicle)/params/costmap_test.yaml" command="load" ns="costmap" />
   </node>
 
   <node name="map_publisher" pkg="vehicle" type="map_publisher.py" output = "screen"/>
