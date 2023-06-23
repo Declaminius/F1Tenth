@@ -272,7 +272,7 @@ class PurePursuit:
 
 def main(args):
     rospy.init_node("pure_pursuit")
-    rfgs = pure_pursuit()
+    rfgs = PurePursuit()
     rospy.sleep(0.1)
     # rospack = rospkg.RosPack()
     # with open(f"{rospack.get_path('vehicle')}/path.bin", "rb") as path_file:
