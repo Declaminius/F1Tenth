@@ -38,7 +38,7 @@ class PurePursuit:
     def __init__(self):
         #Topics & Subscriptions,Publishers
         lidarscan_topic = '/scan'
-        drive_topic = '/nav'
+        drive_topic = '/pure_pursuit_nav'
         map_topic = '/map'
         odom_topic = '/odom'
         path_topic = '/path'
@@ -47,7 +47,7 @@ class PurePursuit:
         # Tuneable parameters
         # self.L = 2
         self.L_factor = 2.
-        self.speed_percentage = 0.6
+        self.speed_percentage = 0.25
         self.n_log = 50
         self.multilap = True
         self.laps = 0
@@ -86,17 +86,18 @@ class PurePursuit:
         self.tf_buffer = tf2_ros.Buffer(rospy.Duration(100.0))  # tf buffer length
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
 
-        self.path_pub = rospy.Subscriber(path_topic, Path, self.path_callback, queue_size=1)
-        self.odom_sub = rospy.Subscriber(odom_topic, Odometry, self.odom_callback, queue_size=1)
-        self.lidar_sub = rospy.Subscriber(lidarscan_topic, LaserScan, self.lidar_callback, queue_size=1)
-
         self.drive_pub = rospy.Publisher(drive_topic, AckermannDriveStamped, queue_size=1)
         self.speed_command_pub = rospy.Publisher('speed_command', Float32, queue_size=1)
         self.L_pub = rospy.Publisher('lookahead_dist', Float32, queue_size=1)
         self.marker_pub = rospy.Publisher("/marker_goal", Marker, queue_size = 1000)
         self.actual_path_pub = rospy.Publisher("/actual_path", Path, latch=True, queue_size=1)
-        
 
+        self.path_pub = rospy.Subscriber(path_topic, Path, self.path_callback, queue_size=1)
+        self.odom_sub = rospy.Subscriber(odom_topic, Odometry, self.odom_callback, queue_size=1)
+        self.lidar_sub = rospy.Subscriber(lidarscan_topic, LaserScan, self.lidar_callback, queue_size=1)
+
+
+    
     def myScanIndex(self, scan_msg, angle):
         # expects an angle in degrees and outputs the respective index in the scan_ranges array.
         # angle: between -135 to 135 degrees, where 0 degrees is directly to the front
@@ -217,7 +218,6 @@ class PurePursuit:
         self.curvature = curvature
         # self.R = 1 / max(curvature,self.min_curvature)
         self.R = 1 / curvature
-        rospy.loginfo("curvature: " + str(curvature))
 
         # self.steering_angle = 1 / np.tan(curvature * 0.3302)
         self.steering_angle = np.arctan(0.3302 * curvature)

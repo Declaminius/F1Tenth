@@ -11,7 +11,7 @@ class RosOdomPublisher:
 
     def __init__(self):
         self.tf_br = tf.TransformBroadcaster()
-        self.odom_sub = rospy.Subscriber("/odom", Odometry, self.odom_callback, queue_size=1)
+        self.odom_sub = rospy.Subscriber("/vesc/odom", Odometry, self.odom_callback, queue_size=1)
 
     def odom_callback(self, odom_msg):
         pos = (odom_msg.pose.pose.position.x,
