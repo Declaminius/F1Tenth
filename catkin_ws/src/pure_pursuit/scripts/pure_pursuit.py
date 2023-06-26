@@ -45,11 +45,10 @@ class PurePursuit:
         path_flying_lap_topic = '/path_flying_lap'
 
         # Tuneable parameters
-        # self.L = 2
-        self.L_factor = 2.
         self.max_speed = 7
         self.max_decel = 8.26
         self.max_steering_angle = 0.4189
+        self.wheelbase = 0.3302
         self.speed_percentage = 1
         self.n_log = 50
         self.multilap = True
@@ -170,7 +169,7 @@ class PurePursuit:
 
         # self.L = 0.59259259259259 * self.velocity + 1.8518518518519 if self.velocity > sys.float_info.min else 2.
         # self.L = 0.35 * self.velocity + 1 if self.velocity > sys.float_info.min else 1.
-        self.L = 0.15 * self.velocity + 1 if self.velocity > sys.float_info.min else 1.
+        self.L = 0.25 * self.velocity + 0.5
         self.L_pub.publish(Float32(self.L))
 
         self.L_brake = self.velocity/self.max_decel + 1
@@ -208,7 +207,7 @@ class PurePursuit:
         self.curvature = 2 * goal_transformed.y / self.L**2
         self.curvature_brake = 2 * brake_goal_transformed.y / self.L_brake**2
 
-        self.steering_angle = np.arctan(0.3302 * self.curvature)
+        self.steering_angle = np.arctan(self.wheelbase * self.curvature)
         self.steering_angle = np.clip(self.steering_angle, -self.max_steering_angle, self.max_steering_angle)
 
         self.speed = self.compute_speed()*self.speed_percentage
@@ -242,7 +241,7 @@ class PurePursuit:
 
         speed_curvature = self.max_speed / (1 + 2* self.curvature_brake**2)
         speed_steering_angle = self.max_speed / (1 + 10*self.steering_angle**2)
-        speed_path_error = self.max_speed / (1 + 2.*(projected_path_error/self.min_dist)**2)
+        speed_path_error = self.max_speed / (1 + 2*(projected_path_error/self.min_dist)**2)
 
         self.speed_curvature_pub.publish(speed_curvature)
         self.speed_steering_angle_pub.publish(speed_steering_angle)
