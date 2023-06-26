@@ -50,6 +50,13 @@ class PurePursuit:
         self.max_steering_angle = 0.4189
         self.wheelbase = 0.3302
         self.speed_percentage = 1
+        self.speed_reduction_curvature = 2
+        self.speed_reduction_steering_angle = 8
+        self.speed_reduction_path_error = 1
+
+        self.lookahead_speed_factor = 0.25
+        self.lookahead_dist_min = 0.5
+
         self.n_log = 50
         self.multilap = True
 
@@ -74,7 +81,7 @@ class PurePursuit:
         self.speed_curvature_pub = rospy.Publisher('speed_curvature', Float32, queue_size=1)
         self.speed_steering_angle_pub = rospy.Publisher('speed_steering_angle', Float32, queue_size=1)
         self.speed_path_error_pub = rospy.Publisher('speed_path_error', Float32, queue_size=1)
-        self.L_pub = rospy.Publisher('lookahead_dist', Float32, queue_size=1)
+        self.lookahead_dist_pub = rospy.Publisher('lookahead_dist', Float32, queue_size=1)
         self.marker_pub = rospy.Publisher("/marker_goal", Marker, queue_size = 1000)
 
         # ROS Subscribers
@@ -99,37 +106,41 @@ class PurePursuit:
 
         return index
     
-    def myScanAngle(self, scan_msg, index):
-        # returns angle in radians
+    def check_multilap(self, poses, pose_index):
+        # Reset the pose index to the start of the array, once a lap has been completed
 
-        return scan_msg.angle_min + index * scan_msg.angle_increment
-    
+        if pose_index == self.checkpoint_index:
+            if self.checkpoint_reached == False:
+                rospy.loginfo("Checkpoint Charlie!")
+                self.checkpoint_reached = True
+        # Start a new lap
+        if pose_index == len(poses):
+            if self.checkpoint_reached == True:
+                finish_time = rospy.get_time()
+                lap_time = finish_time - self.prev_lap_finish_time
+                self.prev_lap_finish_time = finish_time
+                rospy.loginfo(f"New lap. Previous lap time: {lap_time:.2f} seconds")
+                self.laps += 1
+                self.checkpoint_reached = False
+            pose_index = 1
+        
+        return pose_index
 
     def calculate_closest_waypoint(self, poses, ground_pose):
         # find closest path point to current pose
 
         prev_dist = np.linalg.norm(poses[self.closest_waypoint_index] - ground_pose)
-        i = self.closest_waypoint_index
-        while i < len(poses):
-            dist = np.linalg.norm(poses[i] - ground_pose)
+        pose_index = self.closest_waypoint_index
+        while pose_index < len(poses):
+            dist = np.linalg.norm(poses[pose_index] - ground_pose)
             if dist > prev_dist:
                 break
             prev_dist = dist
-            i += 1
-            if i == self.checkpoint_index:
-                rospy.loginfo("Checkpoint Charlie!")
-                self.checkpoint_reached = True
-            # Start a new lap
-            if self.multilap and i == len(poses):
-                if self.checkpoint_reached == True:
-                    finish_time = rospy.get_time()
-                    lap_time = finish_time - self.prev_lap_finish_time
-                    self.prev_lap_finish_time = finish_time
-                    rospy.loginfo(f"New lap. Previous lap time: {lap_time:.2f} seconds")
-                    self.laps += 1
-                    self.checkpoint_reached = False
-                i = 1
-        start_index = i - 1
+            pose_index += 1
+            if self.multilap:
+                pose_index = self.check_multilap(poses, pose_index)
+
+        start_index = pose_index - 1
         return start_index
     
     def calculate_goalpoint(self, poses, ground_pose, lookahead_dist):
@@ -167,12 +178,10 @@ class PurePursuit:
         if self.velocity < sys.float_info.min:
             self.closest_waypoint_index = None
 
-        # self.L = 0.59259259259259 * self.velocity + 1.8518518518519 if self.velocity > sys.float_info.min else 2.
-        # self.L = 0.35 * self.velocity + 1 if self.velocity > sys.float_info.min else 1.
-        self.L = 0.25 * self.velocity + 0.5
-        self.L_pub.publish(Float32(self.L))
+        self.lookahead_dist = self.lookahead_speed_factor * self.velocity + self.lookahead_dist_min
+        self.lookahead_dist_pub.publish(Float32(self.lookahead_dist))
 
-        self.L_brake = self.velocity/self.max_decel + 1
+        self.lookahead_dist_brake = self.velocity/self.max_decel + 1
 
         if self.first_lap:
             poses_stamped = self.path.poses
@@ -193,8 +202,8 @@ class PurePursuit:
             # rospy.loginfo_throttle(1, "start index.x: " + str(self.closest_waypoint_index))
 
         self.closest_waypoint_index = self.calculate_closest_waypoint(poses, ground_pose)
-        goal = self.calculate_goalpoint(poses, ground_pose, self.L)
-        brake_goal = self.calculate_goalpoint(poses, ground_pose, self.L_brake)
+        goal = self.calculate_goalpoint(poses, ground_pose, self.lookahead_dist)
+        brake_goal = self.calculate_goalpoint(poses, ground_pose, self.lookahead_dist_brake)
 
         # transform goal point to vehicle coordinate frame
         transform = self.tf_buffer.lookup_transform("base_link", self.path.header.frame_id, rospy.Time())
@@ -204,8 +213,8 @@ class PurePursuit:
         brake_goal_transformed = tf2_geometry_msgs.do_transform_point(PointWrapper(Point(brake_goal[0], brake_goal[1], 1)), transform).point
 
 
-        self.curvature = 2 * goal_transformed.y / self.L**2
-        self.curvature_brake = 2 * brake_goal_transformed.y / self.L_brake**2
+        self.curvature = 2 * goal_transformed.y / self.lookahead_dist**2
+        self.curvature_brake = 2 * brake_goal_transformed.y / self.lookahead_dist_brake**2
 
         self.steering_angle = np.arctan(self.wheelbase * self.curvature)
         self.steering_angle = np.clip(self.steering_angle, -self.max_steering_angle, self.max_steering_angle)
@@ -230,37 +239,33 @@ class PurePursuit:
         drive_msg.drive.steering_angle = angle
         drive_msg.drive.speed = speed
         self.drive_pub.publish(drive_msg)
-
-
-    def compute_speed(self):
-
+    
+    def compute_projected_path_error(self):
         alpha = self.steering_angle
         b = self.path_error
         dt = b * np.cos(alpha)
-        projected_path_error = dt + self.L * np.sin(alpha)
+        projected_path_error = dt + self.lookahead_dist * np.sin(alpha)
+        return projected_path_error
 
-        speed_curvature = self.max_speed / (1 + 2* self.curvature_brake**2)
-        speed_steering_angle = self.max_speed / (1 + 10*self.steering_angle**2)
-        speed_path_error = self.max_speed / (1 + 2*(projected_path_error/self.min_dist)**2)
+
+    def compute_speed(self):
+        projected_path_error = self.compute_projected_path_error()
+
+        speed_curvature = self.max_speed / (1 + self.speed_reduction_curvature * self.curvature_brake**2)
+        # speed_steering_angle = self.max_speed / (1 + self.speed_reduction_steering_angle *self.steering_angle**2)
+        speed_path_error = self.max_speed / (1 + self.speed_reduction_path_error * (projected_path_error/self.min_dist)**2)
 
         self.speed_curvature_pub.publish(speed_curvature)
-        self.speed_steering_angle_pub.publish(speed_steering_angle)
+        # self.speed_steering_angle_pub.publish(speed_steering_angle)
         self.speed_path_error_pub.publish(speed_path_error)
 
-
-
-        speed = min(speed_curvature, speed_steering_angle, speed_path_error)
+        speed = min(speed_curvature, speed_path_error)
         return speed
 
 def main(args):
     rospy.init_node("pure_pursuit")
-    rfgs = PurePursuit()
+    pure_pursuit = PurePursuit()
     rospy.sleep(0.1)
-    # rospack = rospkg.RosPack()
-    # with open(f"{rospack.get_path('vehicle')}/path.bin", "rb") as path_file:
-    #     rfgs.path_file = path_file
-    #     buf = BytesIO(path_file.read())
-    #     rfgs.path.deserialize(buf.getvalue())
     rospy.spin()
 
 if __name__ == '__main__':
