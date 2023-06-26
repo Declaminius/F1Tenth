@@ -47,52 +47,40 @@ class PurePursuit:
         # Tuneable parameters
         # self.L = 2
         self.L_factor = 2.
-        self.speed_percentage = 0.25
+        self.max_speed = 7
+        self.max_decel = 8.26
+        self.max_steering_angle = 0.4189
+        self.speed_percentage = 1
         self.n_log = 50
         self.multilap = True
+
+        # Initialization parameters
+        self.steering_angle = 0
+        self.velocity = 0.
+
+        self.timestamp = 0
         self.laps = 0
         self.first_lap = True
         self.checkpoint_reached = False
         self.prev_lap_finish_time = rospy.get_time()
+        self.path = Path()
 
-        self.path = Path() 
-        self.actual_path = Path()
-        self.actual_path.header.frame_id="map"
-
-        self.ground_pose = Pose()
-        
-        self.odom_frame = ""
-        self.odom_stamp = rospy.Time()
-        self.velocity = 0.
-
-        self.ttc_array = []
-        self.ttc = 1000
-        self.ttc_front = 1000
-
-        self.speed = 0.
-        self.steering_angle = 0.
-        self.prev_error = 0.
-
-        self.scan_msg = LaserScan()
-
-        self.curvature = 0.0
-        self.R = 0.
-        self.path_error = 0.
-
-        self.prev_ground_path_index = None
-        self.timestamp = 0
-        
-
+        # ROS Transformations
         self.tf_buffer = tf2_ros.Buffer(rospy.Duration(100.0))  # tf buffer length
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
 
+        # ROS Publishers
         self.drive_pub = rospy.Publisher(drive_topic, AckermannDriveStamped, queue_size=1)
         self.speed_command_pub = rospy.Publisher('speed_command', Float32, queue_size=1)
+        self.speed_curvature_pub = rospy.Publisher('speed_curvature', Float32, queue_size=1)
+        self.speed_steering_angle_pub = rospy.Publisher('speed_steering_angle', Float32, queue_size=1)
+        self.speed_path_error_pub = rospy.Publisher('speed_path_error', Float32, queue_size=1)
         self.L_pub = rospy.Publisher('lookahead_dist', Float32, queue_size=1)
         self.marker_pub = rospy.Publisher("/marker_goal", Marker, queue_size = 1000)
-        self.actual_path_pub = rospy.Publisher("/actual_path", Path, latch=True, queue_size=1)
 
-        self.path_pub = rospy.Subscriber(path_topic, Path, self.path_callback, queue_size=1)
+        # ROS Subscribers
+        self.path_sub = rospy.Subscriber(path_topic, Path, self.path_callback, queue_size=1)
+        self.path_flying_lap_sub = rospy.Subscriber(path_flying_lap_topic, Path, self.path_flying_lap_callback, queue_size=1)
         self.odom_sub = rospy.Subscriber(odom_topic, Odometry, self.odom_callback, queue_size=1)
         self.lidar_sub = rospy.Subscriber(lidarscan_topic, LaserScan, self.lidar_callback, queue_size=1)
 
@@ -145,14 +133,14 @@ class PurePursuit:
         start_index = i - 1
         return start_index
     
-    def calculate_goalpoint(self, poses, ground_pose):
+    def calculate_goalpoint(self, poses, ground_pose, lookahead_dist):
         # find goal point on path at lookahead_distance L
 
         dist = 0
         i = self.closest_waypoint_index + 1
         while i < len(poses):
             dist = np.linalg.norm(poses[i] - ground_pose)
-            if dist > self.L:
+            if dist > lookahead_dist:
                 break
             i += 1
             # Start a new lap
@@ -166,26 +154,26 @@ class PurePursuit:
         scan_angles = np.linspace(scan_msg.angle_min, scan_msg.angle_max, len(scan_ranges))
         projected_speed_array = self.velocity * np.cos(scan_angles)
         projected_speed_array[projected_speed_array < 0.1] = 0.1
+
+        self.min_dist = np.min(scan_ranges)
         self.ttc_array = (np.maximum(0,scan_ranges - 0.3)) / projected_speed_array
         self.ttc = np.amin(self.ttc_array[self.myScanIndex(scan_msg, np.degrees(self.steering_angle) - 30):self.myScanIndex(scan_msg, np.degrees(self.steering_angle) + 30)])
-        # self.ttc = self.ttc_array[self.ttc_index]
         self.ttc_front = self.ttc_array[self.myScanIndex(scan_msg, np.degrees(self.steering_angle))]
 
     def odom_callback(self, odom_msg):
         """ Process each position update using the Pure Pursuit algorithm & publish an AckermannDriveStamped Message
         """
-        self.odom_frame = odom_msg.header.frame_id
-        self.odom_stamp = odom_msg.header.stamp
         self.velocity = odom_msg.twist.twist.linear.x
 
         if self.velocity < sys.float_info.min:
             self.closest_waypoint_index = None
 
         # self.L = 0.59259259259259 * self.velocity + 1.8518518518519 if self.velocity > sys.float_info.min else 2.
-        # self.L = 0.81481481481482 * self.speed + 0.2962962962963 if self.speed > sys.float_info.min else 1.5
         # self.L = 0.35 * self.velocity + 1 if self.velocity > sys.float_info.min else 1.
-        self.L = 0.15 * self.velocity + 0.5 if self.velocity > sys.float_info.min else 1.
+        self.L = 0.15 * self.velocity + 1 if self.velocity > sys.float_info.min else 1.
         self.L_pub.publish(Float32(self.L))
+
+        self.L_brake = self.velocity/self.max_decel + 1
 
         if self.first_lap:
             poses_stamped = self.path.poses
@@ -206,30 +194,28 @@ class PurePursuit:
             # rospy.loginfo_throttle(1, "start index.x: " + str(self.closest_waypoint_index))
 
         self.closest_waypoint_index = self.calculate_closest_waypoint(poses, ground_pose)
-        goal = self.calculate_goalpoint(poses, ground_pose)
+        goal = self.calculate_goalpoint(poses, ground_pose, self.L)
+        brake_goal = self.calculate_goalpoint(poses, ground_pose, self.L_brake)
 
         # transform goal point to vehicle coordinate frame
         transform = self.tf_buffer.lookup_transform("base_link", self.path.header.frame_id, rospy.Time())
         goal_transformed = tf2_geometry_msgs.do_transform_point(PointWrapper(Point(goal[0], goal[1], 1)), transform).point
-        self.goal_pose = goal_transformed
         self.path_error = goal_transformed.y
 
-        curvature = 2 * goal_transformed.y / pow(self.L, 2)
-        self.curvature = curvature
-        # self.R = 1 / max(curvature,self.min_curvature)
-        self.R = 1 / curvature
+        brake_goal_transformed = tf2_geometry_msgs.do_transform_point(PointWrapper(Point(brake_goal[0], brake_goal[1], 1)), transform).point
 
-        # self.steering_angle = 1 / np.tan(curvature * 0.3302)
-        self.steering_angle = np.arctan(0.3302 * curvature)
-        # steering_angle = np.arctan(1 / R)
-        self.steering_angle = np.clip(self.steering_angle, -0.4189, 0.4189)
+
+        self.curvature = 2 * goal_transformed.y / self.L**2
+        self.curvature_brake = 2 * brake_goal_transformed.y / self.L_brake**2
+
+        self.steering_angle = np.arctan(0.3302 * self.curvature)
+        self.steering_angle = np.clip(self.steering_angle, -self.max_steering_angle, self.max_steering_angle)
 
         self.speed = self.compute_speed()*self.speed_percentage
         self.speed_command_pub.publish(self.speed)
 
         self.publish_drive(self.speed, self.steering_angle)
         
-        self.actual_path_pub.publish(self.actual_path)
         marker = visualize_point(goal[0], goal[1])
         self.marker_pub.publish(marker)
     
@@ -242,60 +228,30 @@ class PurePursuit:
     def publish_drive(self, speed, angle):
         drive_msg = AckermannDriveStamped()
         drive_msg.header.stamp = rospy.Time.now()
-        # drive_msg.header.frame_id = "laser"
         drive_msg.drive.steering_angle = angle
         drive_msg.drive.speed = speed
         self.drive_pub.publish(drive_msg)
 
 
     def compute_speed(self):
-        # choose front beam ttc if minimum ttc is not in fov [-45, 45]
-        # if not -45 < np.degrees(self.myScanAngle(self.scan_msg, self.ttc_index)) < 45:
-        #     # speed = 5 * ttc_array[self.myScanIndex(scan_msg, np.degrees(self.steering_angle))]
-        #     speed = min(7, max(0.5, 7 * (1 - np.exp(-0.5*self.ttc_front))))
-        # else:
-        #     speed = min(7, max(0.5, 7 * (1 - np.exp(-0.75*self.ttc))))
-
-        # alpha = np.arcsin(self.goal_pose.y / self.L)
 
         alpha = self.steering_angle
-        # rospy.loginfo_throttle(1, "steering angle: " + str(alpha))
-
         b = self.path_error
         dt = b * np.cos(alpha)
-
         projected_path_error = dt + self.L * np.sin(alpha)
 
-        # ttc = self.ttc_array[self.myScanIndex(self.scan_msg, math.degrees(alpha))]
-        ttc = self.ttc
-        if abs(self.curvature) < 0.1:
-            return 7
-        R = 1 / self.curvature
-        vel = self.velocity if self.velocity > sys.float_info.min else 7
-        a = 7 / 1 + 2 * math.pow(self.curvature, 2)
-        speed = a
-        speed = min(7, max(0.25, 7 * (1 - math.exp(-0.75*ttc))))
-        
-        # clip speed by steering angle
-        speed /= 10. * pow(self.steering_angle, 2) + 1
+        speed_curvature = self.max_speed / (1 + 2* self.curvature_brake**2)
+        speed_steering_angle = self.max_speed / (1 + 10*self.steering_angle**2)
+        speed_path_error = self.max_speed / (1 + 2.*(projected_path_error/self.min_dist)**2)
 
-        
-        # speed_multiplier = max(1, 1 / (100*projected_path_error**2)) if projected_path_error > sys.float_info.min else 1
-        # speed *= speed_multiplier
-        # rospy.loginfo(f"Speed multiplier (path error): {speed_multiplier}")
+        self.speed_curvature_pub.publish(speed_curvature)
+        self.speed_steering_angle_pub.publish(speed_steering_angle)
+        self.speed_path_error_pub.publish(speed_path_error)
 
-        # rospy.loginfo_throttle(1, "path error: " + str(projected_path_error))
-        # rospy.loginfo_throttle(1, "velocity: " + str(self.velocity))
+
+
+        speed = min(speed_curvature, speed_steering_angle, speed_path_error)
         return speed
-    
-    def append_pose(self, pos_x, pos_y):
-        cur_pose = PoseStamped()
-        cur_pose.header.stamp = rospy.Time.now()
-        cur_pose.header.frame_id = self.odom_frame
-        cur_pose.pose.position.x = pos_x
-        cur_pose.pose.position.y = pos_y
-        cur_pose.pose.position.z = 0
-        self.actual_path.poses.append(cur_pose)
 
 def main(args):
     rospy.init_node("pure_pursuit")
