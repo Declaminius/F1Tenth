@@ -32,7 +32,7 @@ class PointWrapper:
         self.min_speed = 0.5
         self.ttc = 0
         self.margin = 0.3
-        self.velocity=0
+        self.velocity = 0
 
 class PurePursuit:
     def __init__(self):
@@ -50,9 +50,9 @@ class PurePursuit:
         self.max_steering_angle = 0.4189
         self.wheelbase = 0.3302
         self.speed_percentage = 1
-        self.speed_reduction_curvature = 2
-        self.speed_reduction_steering_angle = 8
-        self.speed_reduction_path_error = 1
+        self.speed_reduction_curvature = 3
+        # self.speed_reduction_steering_angle = 10
+        self.speed_reduction_path_error = 0.
 
         self.lookahead_speed_factor = 0.25
         self.lookahead_dist_min = 0.5
@@ -79,7 +79,6 @@ class PurePursuit:
         self.drive_pub = rospy.Publisher(drive_topic, AckermannDriveStamped, queue_size=1)
         self.speed_command_pub = rospy.Publisher('speed_command', Float32, queue_size=1)
         self.speed_curvature_pub = rospy.Publisher('speed_curvature', Float32, queue_size=1)
-        self.speed_steering_angle_pub = rospy.Publisher('speed_steering_angle', Float32, queue_size=1)
         self.speed_path_error_pub = rospy.Publisher('speed_path_error', Float32, queue_size=1)
         self.lookahead_dist_pub = rospy.Publisher('lookahead_dist', Float32, queue_size=1)
         self.marker_pub = rospy.Publisher("/marker_goal", Marker, queue_size = 1000)
@@ -166,8 +165,10 @@ class PurePursuit:
         projected_speed_array[projected_speed_array < 0.1] = 0.1
 
         self.min_dist = np.min(scan_ranges)
+        self.front_dist = scan_ranges[self.myScanIndex(scan_msg, 0)]
         self.ttc_array = (np.maximum(0,scan_ranges - 0.3)) / projected_speed_array
         self.ttc = np.amin(self.ttc_array[self.myScanIndex(scan_msg, np.degrees(self.steering_angle) - 30):self.myScanIndex(scan_msg, np.degrees(self.steering_angle) + 30)])
+        self.ttc = max(0.1, self.ttc)
         self.ttc_front = self.ttc_array[self.myScanIndex(scan_msg, np.degrees(self.steering_angle))]
 
     def odom_callback(self, odom_msg):
@@ -181,7 +182,7 @@ class PurePursuit:
         self.lookahead_dist = self.lookahead_speed_factor * self.velocity + self.lookahead_dist_min
         self.lookahead_dist_pub.publish(Float32(self.lookahead_dist))
 
-        self.lookahead_dist_brake = self.velocity/self.max_decel + 1
+        self.lookahead_dist_brake = 1.4*self.velocity/self.max_decel + 1
 
         if self.first_lap:
             poses_stamped = self.path.poses
@@ -253,10 +254,9 @@ class PurePursuit:
 
         speed_curvature = self.max_speed / (1 + self.speed_reduction_curvature * self.curvature_brake**2)
         # speed_steering_angle = self.max_speed / (1 + self.speed_reduction_steering_angle *self.steering_angle**2)
-        speed_path_error = self.max_speed / (1 + self.speed_reduction_path_error * (projected_path_error/self.min_dist)**2)
+        speed_path_error = self.max_speed / (1 + self.speed_reduction_path_error * (self.path_error/self.ttc)**2)
 
         self.speed_curvature_pub.publish(speed_curvature)
-        # self.speed_steering_angle_pub.publish(speed_steering_angle)
         self.speed_path_error_pub.publish(speed_path_error)
 
         speed = min(speed_curvature, speed_path_error)
