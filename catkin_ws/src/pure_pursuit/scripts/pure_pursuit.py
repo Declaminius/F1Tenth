@@ -50,9 +50,9 @@ class PurePursuit:
         self.max_steering_angle = 0.4189
         self.wheelbase = 0.3302
         self.speed_percentage = 1
-        self.speed_reduction_curvature = 3
+        self.speed_reduction_curvature = 7.5
         # self.speed_reduction_steering_angle = 10
-        self.speed_reduction_path_error = 0.
+        self.speed_reduction_path_error = 0.1
 
         self.lookahead_speed_factor = 0.25
         self.lookahead_dist_min = 0.5
@@ -81,6 +81,8 @@ class PurePursuit:
         self.speed_curvature_pub = rospy.Publisher('speed_curvature', Float32, queue_size=1)
         self.speed_path_error_pub = rospy.Publisher('speed_path_error', Float32, queue_size=1)
         self.lookahead_dist_pub = rospy.Publisher('lookahead_dist', Float32, queue_size=1)
+        self.curvature_pub = rospy.Publisher('curvature', Float32, queue_size=1)
+        self.curvature_brake_pub = rospy.Publisher('curvature_brake', Float32, queue_size=1)
         self.marker_pub = rospy.Publisher("/marker_goal", Marker, queue_size = 1000)
 
         # ROS Subscribers
@@ -180,9 +182,10 @@ class PurePursuit:
             self.closest_waypoint_index = None
 
         self.lookahead_dist = self.lookahead_speed_factor * self.velocity + self.lookahead_dist_min
+
         self.lookahead_dist_pub.publish(Float32(self.lookahead_dist))
 
-        self.lookahead_dist_brake = 1.4*self.velocity/self.max_decel + 1
+        self.lookahead_dist_speed = 0.17*self.velocity + 1
 
         if self.first_lap:
             poses_stamped = self.path.poses
@@ -204,7 +207,7 @@ class PurePursuit:
 
         self.closest_waypoint_index = self.calculate_closest_waypoint(poses, ground_pose)
         goal = self.calculate_goalpoint(poses, ground_pose, self.lookahead_dist)
-        brake_goal = self.calculate_goalpoint(poses, ground_pose, self.lookahead_dist_brake)
+        brake_goal = self.calculate_goalpoint(poses, ground_pose, self.lookahead_dist_speed)
 
         # transform goal point to vehicle coordinate frame
         transform = self.tf_buffer.lookup_transform("base_link", self.path.header.frame_id, rospy.Time())
@@ -213,9 +216,11 @@ class PurePursuit:
 
         brake_goal_transformed = tf2_geometry_msgs.do_transform_point(PointWrapper(Point(brake_goal[0], brake_goal[1], 1)), transform).point
 
-
         self.curvature = 2 * goal_transformed.y / self.lookahead_dist**2
-        self.curvature_brake = 2 * brake_goal_transformed.y / self.lookahead_dist_brake**2
+        self.curvature_brake = 2 * brake_goal_transformed.y / self.lookahead_dist_speed**2
+
+        self.curvature_pub.publish(self.curvature)
+        self.curvature_brake_pub.publish(self.curvature_brake)
 
         self.steering_angle = np.arctan(self.wheelbase * self.curvature)
         self.steering_angle = np.clip(self.steering_angle, -self.max_steering_angle, self.max_steering_angle)
