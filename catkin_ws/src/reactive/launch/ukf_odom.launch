@@ -1,9 +1,8 @@
-<launch>
-    <include file="$(find razor_imu_9dof)/launch/razor-pub.launch"/>
+<launch> 
+    <remap from="/odometry/filtered" to="/odometry/filtered_local" /> 
     <node name="ukf_odom" pkg="robot_localization" type="ukf_localization_node" clear_params="true">
-        <rosparam command="load" file="$(find reactive)/params/ukf_racecar.yaml" />
+        <rosparam command="load" file="$(find reactive)/params/ukf_odom.yaml" />
     </node>
-        <remap from="/odometry/filtered" to="/vesc/odom" /> 
       <!-- <node name="ukf_odom_map" pkg="robot_localization" type="ukf_localization_node" clear_params="true">
         <rosparam command="load" file="$(find reactive)/params/ukf_map.yaml" />
         <remap from="/odometry/filtered" to="/odometry/filtered_map" /> 

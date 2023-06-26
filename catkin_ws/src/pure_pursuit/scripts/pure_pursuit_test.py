@@ -75,7 +75,7 @@ class pure_pursuit:
 
         self.scan_msg = LaserScan()
 
-
+        self.R = 0.
         self.path_error = 0.
 
         self.prev_ground_path_index = None
@@ -216,7 +216,7 @@ class pure_pursuit:
         self.path_error = goal_transformed.y
 
         curvature = 2 * goal_transformed.y / pow(self.L, 2)
-        R = 1 / curvature
+        self.R = 1 / curvature
 
         # self.steering_angle = 1 / np.tan(curvature * 0.3302)
         self.steering_angle = np.arctan(0.3302 * curvature)
@@ -277,7 +277,7 @@ class pure_pursuit:
 
         # ttc = self.ttc_array[self.myScanIndex(self.scan_msg, math.degrees(alpha))]
         ttc = self.ttc
-        speed = min(7, max(0.25, 7 * (1 - math.exp(-0.75*ttc))))
+        speed = min(7, max(0.25, 7 * (1 - math.exp(-0.75*self.R))))
         
         # clip speed by steering angle
         speed /= 10. * pow(self.steering_angle, 2) + 1

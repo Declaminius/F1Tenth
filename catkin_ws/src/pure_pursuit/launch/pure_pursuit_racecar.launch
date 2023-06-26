@@ -1,8 +1,11 @@
 <?xml version="1.0"?>
 <launch>
-  <remap from="odom" to="/vesc/odom"/>
+  <remap from="odom" to="/odometry/filtered_local"/>
   <remap from="pure_pursuit_nav" to="/vesc/high_level/ackermann_cmd_mux/input/nav_0" />
   <node name="planner" pkg="pure_pursuit" type="planner.py" output = "screen"/>
+  <include file="$(find razor_imu_9dof)/launch/razor-pub.launch"/>
+  <include file="$(find reactive)/launch/ukf_odom.launch"/>
+  <!-- <include file="$(find reactive)/launch/ukf_map.launch"/> -->
   <include file="$(find reactive)/launch/amcl_racecar.launch">
     <arg name="map" default="$(find pure_pursuit)/maps/Jun22.yaml"/>
   </include>
