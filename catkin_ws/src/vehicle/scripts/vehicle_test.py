@@ -78,7 +78,7 @@ class Vehicle:
         drive_topic = '/nav'
         lidarscan_topic = '/scan'
         odom_topic = '/odom'
-        path_topic = '/path2'
+        path_topic = '/path'
         obstacles_topic = '/costmap_node/costmap/costmap_updates'
 
         self.pure_pursuit_drive = rospy.Subscriber(pure_pursuit_topic, AckermannDriveStamped, self.pure_pursuit_callback, queue_size=1)
@@ -179,7 +179,8 @@ class Vehicle:
             drive_msg = AckermannDriveStamped()
             drive_msg.header.stamp = self.pp_drive_msg.header.stamp
             drive_msg.drive.steering_angle = self.pp_drive_msg.drive.steering_angle
-            drive_msg.drive.speed = self.pp_drive_msg.drive.speed
+            # drive_msg.drive.speed = self.pp_drive_msg.drive.speed
+            drive_msg.drive.speed = 1.
             self.drive_mode = "PURE PURSUIT"
             self.drive_pub.publish(drive_msg)
             self.steering_angle = drive_msg.drive.steering_angle
@@ -240,7 +241,7 @@ class Vehicle:
             goal_in_map = self.convert_position_to_grid_cell(self.goal[1], self.goal[0])
             goal = self.convert_grid_cell_to_position(goal_in_map[1], goal_in_map[0])
             self.visualize_obstacle(goal[0], goal[1])
-            # rospy.loginfo("OCCUPANCY VALUE FOR L: " + str(self.map_matrix[goal_in_map[0], goal_in_map[1]]))
+            rospy.loginfo("OCCUPANCY VALUE FOR L: " + str(self.map_matrix[goal_in_map[0], goal_in_map[1]]))
             if self.map_matrix[goal_in_map[0], goal_in_map[1]] >= 65:
                 # occupied!
                 self.obstacle_detected = True
