@@ -186,6 +186,7 @@ class PurePursuit:
         self.lookahead_dist_pub.publish(Float32(self.lookahead_dist))
 
         self.lookahead_dist_speed = 0.17*self.velocity + 1
+        # self.lookahead_dist_speed = self.lookahead_dist
 
         if self.first_lap:
             poses_stamped = self.path.poses

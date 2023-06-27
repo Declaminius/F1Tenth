@@ -153,7 +153,7 @@ class PathPlanner:
         return eroded_map
     
     @timing
-    def dijkstra(self, map_msg, safe_area, starting_point, finish_line_start, finish_line_end, neighborhood):
+    def dijkstra(self, map_msg, safe_area, starting_point, finish_line_start, finish_line_end, neighborhood, magic_number = 1):
         # Currently implemented with a 4-neighborhood - since Dijkstra is equivalent to breadth-first search
         # for uniform weights
         # Currently expects the finishline to always be horizontal
@@ -189,7 +189,12 @@ class PathPlanner:
 
             for delta_x, delta_y, weight in neighborhood:
                 new_x = x + delta_x
-                new_y = y + delta_y 
+                new_y = y + delta_y
+                old_x, old_y = previous_node[(x,y)]
+
+                # Penalize going in the same direction as last step! Sounds stupid, but leads to less steering overall
+                if (x - old_x,y - old_y) == (delta_x, delta_y):
+                    weight *= magic_number
 
                 if visited[new_x, new_y]:
                     continue
@@ -207,10 +212,10 @@ class PathPlanner:
         rospy.logerr("No path found from startpoint to finish line! Reduce the self.safety_margin parameter")
 
     @timing
-    def shortest_path(self, map_msg, safe_area, start_point, finish_line_start, finish_line_end, neighborhood):
+    def shortest_path(self, map_msg, safe_area, start_point, finish_line_start, finish_line_end, neighborhood, magic_number = 1):
         "Use Dijkstra with a 4-neighborhood or an 8-neighborhood"
 
-        previous_node, finish_point, dist = self.dijkstra(map_msg, safe_area, start_point, finish_line_start, finish_line_end, neighborhood)
+        previous_node, finish_point, dist = self.dijkstra(map_msg, safe_area, start_point, finish_line_start, finish_line_end, neighborhood, magic_number)
         shortest_path = Path()
         pos_x, pos_y = self.convert_grid_cell_to_position(finish_point[0], finish_point[1])
         self.append_pose(map_msg, shortest_path, pos_x, pos_y)
@@ -322,11 +327,12 @@ class PathPlanner:
         # shortest_path, distance = self.shortest_path(map_msg, safe_area, finish_line_start, finish_line_end, neighborhood4)
         # rospy.loginfo(f"Length of shortest path: {self.map_res * distance} meters")
 
-        shortest_path, finish_point, distance = self.shortest_path(map_msg, safe_area, self.start_point, finish_line_start, finish_line_end, neighborhood8)
+        magic_number = 1.1
+        shortest_path, finish_point, distance = self.shortest_path(map_msg, safe_area, self.start_point, finish_line_start, finish_line_end, neighborhood8, magic_number)
         rospy.loginfo(f"Length of shortest path (with diagonals): {self.map_res * distance} meters")
         self.pixel_path_pub.publish(shortest_path)
 
-        shortest_path_flying_lap, _, distance_flying_lap = self.shortest_path(map_msg, safe_area, finish_point, finish_line_start, finish_line_end, neighborhood8)
+        shortest_path_flying_lap, _, distance_flying_lap = self.shortest_path(map_msg, safe_area, finish_point, finish_line_start, finish_line_end, neighborhood8, magic_number)
         rospy.loginfo(f"Length of shortest flying path (with diagonals): {self.map_res * distance_flying_lap} meters")
 
         for path, publisher in zip((shortest_path, shortest_path_flying_lap),(self.path_pub, self.path_flying_lap_pub)):
