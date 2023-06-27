@@ -4,7 +4,8 @@
   <include file="$(find f1tenth_simulator)/launch/simulator.launch">
     <arg name="map" default="$(find f1tenth_simulator)/maps/f1_aut_wide.yaml"/>
   </include>
-  <node name="planner" pkg="pure_pursuit" type="planner.py" output = "screen"/>
+  <!-- <node name="planner" pkg="pure_pursuit" type="planner.py" output = "screen"/> -->
+  <include file="$(find pure_pursuit)/launch/planner.launch" />
   <node name="tracker" pkg="pure_pursuit" type="pure_pursuit.py" output = "screen"/>
   <node name="rqt_plot" pkg="rqt_plot" type="rqt_plot"/>
 </launch>

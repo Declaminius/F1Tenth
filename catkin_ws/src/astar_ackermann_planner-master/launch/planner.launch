@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<launch>
+    <!-- <node name="costmap_node" pkg="costmap_2d" type="costmap_2d_node" >
+        <rosparam file="$(find vehicle)/params/costmap.yaml" command="load" ns="global_costmap" />
+    </node> -->
+    <node name="planner" pkg="astar_ackermann_planner" type="astar_ackermann_planner_node">
+        <rosparam file="$(find pure_pursuit)/params/planner.yaml" command="load"/>
+    </node>
+</launch>

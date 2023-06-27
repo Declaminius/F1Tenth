@@ -1,4 +1,12 @@
 <?xml version="1.0"?>
 <launch>
-  <node name="planner" pkg="pure_pursuit" type="planner.py" output = "screen"/>
+  <!-- <node name="planner" pkg="pure_pursuit" type="planner.py" output = "screen"/> -->
+   <!-- Run the costmap node -->
+  <include file="$(find astar_ackermann_planner)/launch/planner.launch" />
+
+  <!-- <node pkg="move_base" type="move_base" name="move_base">
+    <rosparam file="$(find vehicle)/params/costmap.yaml" command="load" ns="global_costmap"/>
+    <rosparam file="$(find pure_pursuit)/params/planner.yaml" command="load"/>
+    <param name="base_global_planner" value="astar_ackermann_planner::AStarAckermannPlanner"/>
+  </node> -->
 </launch>
