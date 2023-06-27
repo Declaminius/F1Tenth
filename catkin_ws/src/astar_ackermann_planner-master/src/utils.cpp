@@ -3,6 +3,7 @@
 #include <tf2/LinearMath/Matrix3x3.h>
 #include <tf2/convert.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <tf/tf.h>
 
 #include "astar_ackermann_planner/utils.h"
 
@@ -15,11 +16,13 @@ namespace astar_ackermann_planner {
     Pose::Pose(const geometry_msgs::PoseStamped &pose) {
         tf2::Quaternion quat;
         tf2::fromMsg(pose.pose.orientation, quat);
-        double roll, pitch, yaw;
-        tf2::Matrix3x3(quat).getRPY(roll, pitch, yaw);
+        // double roll, pitch, yaw;
+        tf2Scalar yaw, pitch, roll;
+        tf2::Matrix3x3 mat(quat);
+        mat.getRPY(roll, pitch, yaw);
         x = pose.pose.position.x;
         y = pose.pose.position.y;
-        th = yaw;
+        th = (double)yaw;
     }
 
     geometry_msgs::PoseStamped Pose::toPoseStamped() {

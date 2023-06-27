@@ -39,18 +39,18 @@ namespace planner {
         void occupancyGridCallback(const nav_msgs::OccupancyGrid::ConstPtr& msg)
         {
             // Create a Costmap2D object and initialize it with the occupancy grid data
-            // costmap_2d::Costmap2D costmap(msg->info.width, msg->info.height, msg->info.resolution,
-            //                                 msg->info.origin.position.x, msg->info.origin.position.y);
-
-            tf2_ros::TransformListener tf_listener(this->tfBuffer);
-
-            costmap_2d::Costmap2DROS ros_costmap("my_costmap", this->tfBuffer);
-            costmap_2d::Costmap2D *costmap = ros_costmap.getCostmap();
-            costmap->resizeMap(msg->info.width, msg->info.height, msg->info.resolution,
+          costmap_2d::Costmap2D *costmap = new costmap_2d::Costmap2D(msg->info.width, msg->info.height, msg->info.resolution,
                                             msg->info.origin.position.x, msg->info.origin.position.y);
+
+            // tf2_ros::TransformListener tf_listener(this->tfBuffer);
+
+            // costmap_2d::Costmap2DROS ros_costmap("my_costmap", this->tfBuffer);
+            // costmap_2d::Costmap2D *costmap = ros_costmap.getCostmap();
+            // costmap->resizeMap(msg->info.width, msg->info.height, msg->info.resolution,
+            //                                 msg->info.origin.position.x, msg->info.origin.position.y);
             
              // Copy the occupancy grid data to the costmap
-                for (unsigned int x = 0; x < msg->info.width; ++x)
+            for (unsigned int x = 0; x < msg->info.width; ++x)
             {
             for (unsigned int y = 0; y < msg->info.height; ++y)
                 {
@@ -71,11 +71,11 @@ namespace planner {
                 }
             }
 
-            // this->grid = this->costmapToGrid(costmap);
+            // this->grid = this->costmapToGrid(*costmap);
             // this->publishCostmap();
 
-            // planner.initialize("Planner", new astar_ackermann_planner::CostmapAdapter(&costmap));
-            planner.initialize("Planner", &ros_costmap);
+            planner.initialize("Planner", new astar_ackermann_planner::CostmapAdapter(costmap));
+            // planner.initialize("Planner", &ros_costmap);
             std::vector<geometry_msgs::PoseStamped> plan;
             geometry_msgs::PoseStamped start;
             geometry_msgs::PoseStamped goal;
@@ -86,6 +86,11 @@ namespace planner {
                 start.pose.position.x = 0.0;
                 start.pose.position.y = 0.0;
                 start.pose.position.z = 0.0;
+                start.pose.orientation.x = 0.0;
+                start.pose.orientation.y = 0.0;
+                start.pose.orientation.z = 0.0;
+                start.pose.orientation.w = 0.0;
+                goal = start;
                 planner.makePlan(start, goal, plan);
                 plan.clear();
                 rate.sleep();

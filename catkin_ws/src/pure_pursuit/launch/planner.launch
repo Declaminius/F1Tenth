@@ -2,7 +2,7 @@
 <launch>
   <!-- <node name="planner" pkg="pure_pursuit" type="planner.py" output = "screen"/> -->
    <!-- Run the costmap node -->
-  <include file="$(find astar_ackermann_planner)/launch/planner.launch" />
+  <!-- <include file="$(find astar_ackermann_planner)/launch/planner.launch" /> -->
 
   <!-- <node pkg="move_base" type="move_base" name="move_base">
     <rosparam file="$(find vehicle)/params/costmap.yaml" command="load" ns="global_costmap"/>

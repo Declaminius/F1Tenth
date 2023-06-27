@@ -25,11 +25,12 @@ using namespace std;
 namespace astar_ackermann_planner {
 
     AStarAckermannPlanner::AStarAckermannPlanner() :
-        name_(""), costmap_(nullptr), step_size_(0.2), turning_radius_(13.0), global_frame_("") {}
+        name_(""), costmap_(nullptr), step_size_(0.2), turning_radius_(13.0), global_frame_("map") {}
 
     void AStarAckermannPlanner::initialize(std::string name,
                                   costmap_2d::Costmap2DROS *costmap_ros) {
-        global_frame_ = costmap_ros->getGlobalFrameID();
+        // global_frame_ = costmap_ros->getGlobalFrameID();
+        global_frame_ = "map";
         initialize(name, new CostmapAdapter(costmap_ros->getCostmap()));
     };
 
