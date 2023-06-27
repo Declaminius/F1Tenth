@@ -88,6 +88,7 @@ class Vehicle:
 
         self.scans_pub = rospy.Publisher("/cartesian_scans", Marker, queue_size = 1)
         self.obstacle_marker_pub = rospy.Publisher("/obstacle", Marker, queue_size = 1000)
+        self.closest_path_point_pub = rospy.Publisher("/closest_path_point", Marker, queue_size = 1000)
 
         self.obstacles_pub = rospy.Publisher('/obstacles_map', OccupancyGrid, queue_size=1)
         rospy.Timer(rospy.Duration(2.0/1.0), self.publish_obstacles_map)
@@ -112,7 +113,7 @@ class Vehicle:
         rospy.Timer(rospy.Duration(1.0/2.0), self.log_drive_mode)
 
         self.pp_start_index = Int32(0)
-        self.L = 1.
+        self.safe_path_pose = (0., 0.)
 
         self.obstacles_update_sub = rospy.Subscriber(obstacles_topic, OccupancyGridUpdate, self.obstacles_update_callback, queue_size=1)
         self.path_sub = rospy.Subscriber(path_topic, Path, self.path_callback, queue_size=1)
@@ -122,6 +123,15 @@ class Vehicle:
 
         self.tf_buffer = tf2_ros.Buffer(rospy.Duration(1.0))  # tf buffer length
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
+
+        # Tuning parameters
+        self.pure_pursuit_L = 1.
+        self.reactive_L = 0.2
+        self.pure_pursuit_alpha = 0.75
+        self.pure_pursuit_beta = 0.5
+        self.map_lethal_thres = 65
+        self.reactive_front_fow = 125
+        self.reactive_safety_factor = 2.5
 
     def convert_position_to_grid_cell(self, pos_x, pos_y):
         "Takes a position in meters and converts it to the corresponding grid cell in the OccupancyGrid"
@@ -160,18 +170,40 @@ class Vehicle:
         poses = np.array([(p.pose.position.x, p.pose.position.y) for p in self.path.poses])
         ground_pos = self.path.poses[self.pp_start_index.data]
         ground_pose = (ground_pos.pose.position.x, ground_pos.pose.position.y)
+        max_L = max(self.pure_pursuit_L, self.reactive_L)
+        goal_index = i
+        safety_index = i
+        goal_found = False
+        safety_found = False
         while i < len(poses):
             dist = np.linalg.norm(poses[i] - ground_pose)
-            if dist > self.L:
+            if dist > self.pure_pursuit_L and not goal_found:
+                goal_found = True
+                goal_index = i - 1
+            if dist > self.reactive_L and not safety_found:
+                safety_found = True
+                safety_index = i - 1
+            if dist > max_L:
                 break
             i += 1
             # Start a new lap
             if self.multilap and i == len(poses):
                 i = 0
-        self.goal = poses[i - 1]    
+        self.goal = poses[goal_index]    
+
+        self.safe_path_pose = poses[safety_index]
+        marker = self.visualize_obstacle(poses[safety_index][0], poses[safety_index][1], g=0.0, b=1.0)
+        self.closest_path_point_pub.publish(marker)
+
+        # if self.obstacle_detected:
+        #     goal_in_map = self.convert_position_to_grid_cell(poses[safety_index][1], poses[safety_index][0])
+        #     if self.map_matrix[goal_in_map[0], goal_in_map[1]] >= 65:
+        #         # occupied!
+        #         self.obstacle_detected = False
+
 
     def pure_pursuit_L_callback(self, L):
-        self.L = L.data * 0.5 + 0.8
+        self.pure_pursuit_L = L.data * 0.5 + 0.8
 
     def pure_pursuit_callback(self, drive):
         self.pp_drive_msg = drive
@@ -179,8 +211,8 @@ class Vehicle:
             drive_msg = AckermannDriveStamped()
             drive_msg.header.stamp = self.pp_drive_msg.header.stamp
             drive_msg.drive.steering_angle = self.pp_drive_msg.drive.steering_angle
-            # drive_msg.drive.speed = self.pp_drive_msg.drive.speed
-            drive_msg.drive.speed = 1.
+            drive_msg.drive.speed = self.pp_drive_msg.drive.speed
+            # drive_msg.drive.speed = 1.
             self.drive_mode = "PURE PURSUIT"
             self.drive_pub.publish(drive_msg)
             self.steering_angle = drive_msg.drive.steering_angle
@@ -231,31 +263,36 @@ class Vehicle:
         self.map_frame = data.header.frame_id
         self.car_frame = data.child_frame_id
         self.car_stamp = data.header.stamp
-        # self.L = 0.75 * self.velocity + 0.5 if self.velocity > sys.float_info.min else self.L
-        self.L = 1.5 * self.velocity if self.velocity > sys.float_info.min else self.L
+        self.pure_pursuit_L = self.pure_pursuit_alpha * self.velocity + self.pure_pursuit_beta if self.velocity > sys.float_info.min else self.pure_pursuit_L
+        # self.L = 0.5 * self.velocity if self.velocity > sys.float_info.min else self.L
+        # self.safety_L = 2. * self.velocity if self.velocity > sys.float_info.min else self.safety_L
 
         if self.map is None or self.goal is None:
             return
         
+        goal_in_map = self.convert_position_to_grid_cell(self.goal[1], self.goal[0])
+        goal = self.convert_grid_cell_to_position(goal_in_map[1], goal_in_map[0])
+        marker = self.visualize_obstacle(goal[0], goal[1])
+        self.obstacle_marker_pub.publish(marker)
+        
         if not self.obstacle_detected:
-            goal_in_map = self.convert_position_to_grid_cell(self.goal[1], self.goal[0])
-            goal = self.convert_grid_cell_to_position(goal_in_map[1], goal_in_map[0])
-            self.visualize_obstacle(goal[0], goal[1])
-            rospy.loginfo("OCCUPANCY VALUE FOR L: " + str(self.map_matrix[goal_in_map[0], goal_in_map[1]]))
-            if self.map_matrix[goal_in_map[0], goal_in_map[1]] >= 65:
+            
+            # rospy.loginfo("OCCUPANCY VALUE FOR L: " + str(self.map_matrix[goal_in_map[0], goal_in_map[1]]))
+            if self.map_matrix[goal_in_map[0], goal_in_map[1]] >= self.map_lethal_thres:
                 # occupied!
                 self.obstacle_detected = True
         # else:
-        #     theta = np.arange(self.steering_angle - math.radians(100), self.steering_angle + math.radians(100), math.radians(5), dtype=np.float32)
+        #     theta = np.arange(self.yaw - math.radians(100), self.yaw + math.radians(100), math.radians(5), dtype=np.float32)
         #     r = np.empty(theta.shape)
-        #     L = 1.5 * self.velocity if self.velocity > sys.float_info.min else self.L
-        #     r.fill(self.L)
+        #     # L = 0.25 * self.velocity if self.velocity > sys.float_info.min else self.L
+        #     L = self.L
+        #     r.fill(L)
         #     x = np.empty(theta.shape)
         #     x.fill(self.pose.pose.position.x)
         #     y = np.empty(theta.shape)
         #     y.fill(self.pose.pose.position.y)
-        #     d_x = x + r * np.cos(theta)
-        #     d_y = y + r * np.cos(theta)
+        #     d_x = x + self.velocity * r * np.cos(theta)
+        #     d_y = y + self.velocity * r * np.sin(theta)
         #     projected_pos = np.column_stack((d_x, d_y))
         #     pos_to_cell = lambda p: self.convert_position_to_grid_cell(p[1], p[0])
         #     v_pos_to_cell = np.vectorize(pos_to_cell)
@@ -263,6 +300,24 @@ class Vehicle:
         #     projected_cells = np.apply_along_axis(pos_to_cell, 0, projected_pos)
         #     if not np.any(self.map_matrix[projected_cells[:, 0], projected_cells[:, 1]] > 65):
         #         self.obstacle_detected = False
+
+            # x = np.empty(theta.shape)
+
+            # cells_trace_count = int(self.L // self.map.info.resolution)
+            # x = np.empty(int(cells_trace_count))
+            # y = np.empty(int(cells_trace_count))
+
+            # for i in range(0, cells_trace_count):
+            #     x[i] = self.pose.pose.position.x + i * np.cos(self.steering_angle)
+            #     y[i] = self.pose.pose.position.y + i * np.sin(self.steering_angle)
+            # projected_pos = np.column_stack((x, y))
+            # pos_to_cell = lambda p: self.convert_position_to_grid_cell(p[1], p[0])
+            # v_pos_to_cell = np.vectorize(pos_to_cell)
+            # # projected_cells = v_pos_to_cell(projected_pos)
+            # projected_cells = np.apply_along_axis(pos_to_cell, 0, projected_pos)
+            # if not np.any(self.map_matrix[projected_cells[:, 0], projected_cells[:, 1]] > 65):
+            #     self.obstacle_detected = False
+
 
     def lidar_callback(self, data):
         if self.map is None or self.map.info.width == 0:
@@ -274,31 +329,34 @@ class Vehicle:
         
         # --- switch drive mode back to PP based on ttc threshold -------------------
         if self.obstacle_detected:
-            scan_ranges = np.array(data.ranges)
-            scan_angles = np.linspace(data.angle_min, data.angle_max, len(scan_ranges))
-            projected_speed_array = self.velocity * np.cos(scan_angles)
-            projected_speed_array[projected_speed_array < 0.1] = 0.1
-            self.ttc_array = (np.maximum(0,scan_ranges - 0.2)) / projected_speed_array
-            # angle = np.clip(self.steering_angle, -0.4189, 0.4189)
-            angle = np.clip(self.yaw, -0.4189, 0.4189)
-            self.ttc = np.amin(self.ttc_array[self.myScanIndex(data, math.degrees(angle) - 45):self.myScanIndex(data, math.degrees(angle) + 45)])
-            # self.ttc = np.amin(self.ttc_array[self.myScanIndex(data, -45):self.myScanIndex(data, 45)])
-            rospy.loginfo("ttc: " + str(self.ttc))
+            # scan_ranges = np.array(data.ranges)
+            # scan_angles = np.linspace(data.angle_min, data.angle_max, len(scan_ranges))
+            # projected_speed_array = self.velocity * np.cos(scan_angles)
+            # projected_speed_array[projected_speed_array < 0.1] = 0.1
+            # self.ttc_array = (np.maximum(0,scan_ranges - 0.2)) / projected_speed_array
+            # # angle = np.clip(self.steering_angle, -0.4189, 0.4189)
+            # angle = np.clip(self.yaw, -0.4189, 0.4189)
+            # self.ttc = np.amin(self.ttc_array[self.myScanIndex(data, math.degrees(angle) - 100):self.myScanIndex(data, math.degrees(angle) + 100)])
+            # self.ttc = np.amin(self.ttc_array[self.myScanIndex(data, -125):self.myScanIndex(data, 125)])
             
-            # still_obstacle = False
-            # goal_in_map = self.convert_position_to_grid_cell(self.goal[1], self.goal[0])
-            # goal = self.convert_grid_cell_to_position(goal_in_map[1], goal_in_map[0])
-            # self.visualize_obstacle(goal[0], goal[1])
-            # # rospy.loginfo("OCCUPANCY VALUE FOR L: " + str(self.map_matrix[goal_in_map[0], goal_in_map[1]]))
-            # if self.map_matrix[goal_in_map[0], goal_in_map[1]] >= 65:
-            #     still_obstacle = True
-            # if self.ttc > 1.5 and not still_obstacle:
-            if self.ttc > 2.:
-                self.obstacle_detected = False
-            # ranges = np.array(data.ranges)
-            # front = ranges[self.myScanIndex(data, -125):self.myScanIndex(data, 125)]
-            # if not np.any(front < 2):
+            # # still_obstacle = False
+            # # goal_in_map = self.convert_position_to_grid_cell(self.goal[1], self.goal[0])
+            # # goal = self.convert_grid_cell_to_position(goal_in_map[1], goal_in_map[0])
+            # # self.visualize_obstacle(goal[0], goal[1])
+            # # # rospy.loginfo("OCCUPANCY VALUE FOR L: " + str(self.map_matrix[goal_in_map[0], goal_in_map[1]]))
+            # # if self.map_matrix[goal_in_map[0], goal_in_map[1]] >= 65:
+            # #     still_obstacle = True
+            # # if self.ttc > 1.5 and not still_obstacle:
+
+            # goal_in_map = self.convert_position_to_grid_cell(self.safe_path_pose[1], self.safe_path_pose[0])
+            # if self.ttc > 1. and self.map_matrix[goal_in_map[0], goal_in_map[1]] < 65:
             #     self.obstacle_detected = False
+            ranges = np.array(data.ranges)
+            front = ranges[self.myScanIndex(data, -self.reactive_front_fow):self.myScanIndex(data, self.reactive_front_fow)]
+            # front = ranges
+            goal_in_map = self.convert_position_to_grid_cell(self.safe_path_pose[1], self.safe_path_pose[0])
+            if not np.any(front < self.pure_pursuit_L * self.reactive_safety_factor) and self.map_matrix[goal_in_map[0], goal_in_map[1]] < self.map_lethal_thres:
+                self.obstacle_detected = False
 
     def visualize_obstacle(self,x,y,frame='map',r=0.0,g=1.0,b=0.0):
         marker = Marker()
@@ -307,9 +365,9 @@ class Vehicle:
         marker.id = 150
         marker.type = marker.SPHERE
         marker.action = marker.ADD
-        marker.scale.x = 1
-        marker.scale.y = 1
-        marker.scale.z = 1
+        marker.scale.x = 0.2
+        marker.scale.y = 0.2
+        marker.scale.z = 0.2
         marker.color.a = 1.0
         marker.color.r = r
         marker.color.g = g
@@ -319,7 +377,7 @@ class Vehicle:
         marker.pose.position.y = y
         marker.pose.position.z = 0
         marker.lifetime = rospy.Duration()
-        self.obstacle_marker_pub.publish(marker)
+        return marker
 
     def myScanIndex(self, scan_msg, angle):
         # expects an angle in degrees and outputs the respective index in the scan_ranges array.
