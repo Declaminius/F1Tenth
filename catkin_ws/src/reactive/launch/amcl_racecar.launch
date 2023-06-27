@@ -1,11 +1,8 @@
 <launch>
-  <remap from="odom" to="/odometry/filtered_local"/>
-  <arg name="map" default="$(find reactive)/maps/Jun22.yaml"/>
+  <!-- <remap from="odom" to="/odometry/filtered_local"/> -->
+  <arg name="map" default="$(find reactive)/maps/Jun27_02.yaml"/>
   
-  <!-- <node name="odom_broadcaster" pkg="reactive" type="odom_broadcaster.py" output = "screen"/> -->
-  <node name="map_server" pkg="map_server" type="map_server" args="$(arg map)">
-    <param name="frame_id" value="map"/>
-  </node>
+  <node name="odom_broadcaster" pkg="reactive" type="odom_broadcaster.py" output = "screen"/>
   <node pkg="amcl" type="amcl" name="amcl" output="screen">
 
     <param name="tf_broadcast" value="true"/>
