@@ -45,12 +45,12 @@ class PurePursuit:
         path_flying_lap_topic = '/path_flying_lap'
 
         # Tuneable parameters
-        self.max_speed = 7
+        self.max_speed = 3
         self.max_decel = 8.26
         self.max_steering_angle = 0.4189
         self.wheelbase = 0.3302
         self.speed_percentage = 1
-        self.speed_reduction_curvature = 7.5
+        self.speed_reduction_curvature = 2.5
         # self.speed_reduction_steering_angle = 10
         self.speed_reduction_path_error = 0.1
 
