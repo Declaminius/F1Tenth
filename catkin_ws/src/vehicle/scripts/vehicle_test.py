@@ -124,12 +124,14 @@ class Vehicle:
         self.tf_buffer = tf2_ros.Buffer(rospy.Duration(1.0))  # tf buffer length
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
 
-        # Tuning parameters
         self.pure_pursuit_L = 1.
-        self.reactive_L = 0.2
-        self.pure_pursuit_alpha = 0.75
+
+
+        # Tuning parameters
+        self.reactive_L = 0.2 # maybe ignora
+        self.pure_pursuit_alpha = 0.9
         self.pure_pursuit_beta = 0.5
-        self.map_lethal_thres = 65
+        self.map_lethal_thres = 65 # ignora
         self.reactive_front_fow = 125
         self.reactive_safety_factor = 2.5
 
