@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <launch>
-  <include file="$(find f1tenth_simulator)/launch/simulator.launch"/>
-  <include file="$(find pure_pursuit)/launch/tracker.launch"/>
+  <!-- <include file="$(find f1tenth_simulator)/launch/simulator.launch"/> -->
+  <include file="$(find pure_pursuit)/launch/pure_pursuit_simulator.launch"/>
   <include file="$(find reactive)/launch/reactive.launch"/>
-  <include file="$(find reactive)/launch/amcl.launch"/>
+  <!-- <include file="$(find reactive)/launch/amcl.launch"/> -->
 
    <!-- Run the costmap node -->
   <node name="costmap_node" pkg="costmap_2d" type="costmap_2d_node" >

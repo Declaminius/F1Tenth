@@ -1,5 +1,5 @@
 <launch>
-  <include file="$(find reactive)/launch/ukf.launch"/>
+  <!-- <include file="$(find reactive)/launch/ukf.launch"/> -->
   <!-- <node pkg="tf2_ros" type="static_transform_publisher" name="map_to_odom_frame" 
       args="0.0 0.0 0.0     0.0 0.0 0.0 /map /odom_frame" /> -->
   <node pkg="amcl" type="amcl" name="amcl" output="screen">
@@ -33,6 +33,8 @@
     <param name="transform_tolerance" value="0.1"/>
     <param name="recovery_alpha_slow" value="0.0"/>
     <param name="recovery_alpha_fast" value="0.0"/>
+    <param name="tf_broadcast" value="false"/>
+    <param name="use_map_topic" value="true"/>
   </node>
   
 </launch>
