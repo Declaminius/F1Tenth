@@ -50,9 +50,9 @@ class PurePursuit:
         self.max_steering_angle = 0.4189
         self.wheelbase = 0.3302
         self.speed_percentage = 1
-        self.speed_reduction_curvature = 2.5
+        self.speed_reduction_curvature = 1.5
         # self.speed_reduction_steering_angle = 10
-        self.speed_reduction_path_error = 0.1
+        self.speed_reduction_path_error = 0.05
 
         self.lookahead_speed_factor = 0.25
         self.lookahead_dist_min = 0.5
@@ -84,6 +84,7 @@ class PurePursuit:
         self.curvature_pub = rospy.Publisher('curvature', Float32, queue_size=1)
         self.curvature_brake_pub = rospy.Publisher('curvature_brake', Float32, queue_size=1)
         self.marker_pub = rospy.Publisher("/marker_goal", Marker, queue_size = 1000)
+        self.goal_pose_index_pub = rospy.Publisher('/goal_pose_index', Int32, queue_size=100)
         self.start_pose_index_pub = rospy.Publisher('/start_pose_index', Int32, queue_size=100)
 
         # ROS Subscribers
@@ -145,6 +146,23 @@ class PurePursuit:
         start_index = pose_index - 1
         return start_index
     
+    def interpolate_waypoint(self, i, poses, ground_pose, lookahead_dist):
+                
+        a = (poses[i-1][0]-poses[i][0])**2 + (poses[i-1][1]-poses[i][1])**2
+        b = 2*((poses[i-1][0]-ground_pose[0])*(poses[i-1][0]-poses[i][0]) + (poses[i-1][1]-ground_pose[1])*(poses[i-1][1]-poses[i][1]))
+        c = (poses[i-1][0]-ground_pose[0])**2 + (poses[i-1][1]-ground_pose[1])**2 - lookahead_dist**2
+
+        sol_plus = (-b + np.sqrt(b**2 - 4*a*c))/2*a
+        sol_minus = (-b - np.sqrt(b**2 - 4*a*c))/2*a
+        if 0 <= sol_plus <= 1:
+            return (poses[i-1][0] + sol_plus*(poses[i-1][0]-poses[i][0]), poses[i-1][1] + sol_plus*(poses[i-1][1]-poses[i][1]))
+        elif 0 <= sol_minus <= 1:
+            return (poses[i-1][0] + sol_minus*(poses[i-1][0]-poses[i][0]), poses[i-1][1] + sol_minus*(poses[i-1][1]-poses[i][1]))
+        else:
+            rospy.loginfo("Interpolation failed!")
+            return poses[i - 1]
+
+    
     def calculate_goalpoint(self, poses, ground_pose, lookahead_dist):
         # find goal point on path at lookahead_distance L
 
@@ -159,7 +177,7 @@ class PurePursuit:
             if self.multilap and i == len(poses):
                 self.first_lap = False
                 i = 1
-        return poses[i - 1]
+        return self.interpolate_waypoint(i, poses, ground_pose, lookahead_dist)
 
     def lidar_callback(self, scan_msg):
         scan_ranges = np.array(scan_msg.ranges)

@@ -90,11 +90,6 @@ class PathPlanner:
         #TODO: Smoothen the likelihood field before converting to binary
         map_binary = (map_data < self.occupancy_treshhold).astype(int)
         self.save_map_image(map_binary, f"{self.image_path}/map_binary.png")
-
-        
-        
-        
-
         return map_binary
     
     def calculate_finish_line(self, driveable_area):
