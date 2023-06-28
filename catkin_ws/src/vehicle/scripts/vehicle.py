@@ -78,13 +78,8 @@ class Vehicle:
         drive_topic = '/nav'
         lidarscan_topic = '/scan'
         odom_topic = '/odom'
-        path_topic = '/path2'
+        path_topic = '/path'
         obstacles_topic = '/costmap_node/costmap/costmap_updates'
-
-        self.pure_pursuit_drive = rospy.Subscriber(pure_pursuit_topic, AckermannDriveStamped, self.pure_pursuit_callback, queue_size=1)
-        self.reactive_drive = rospy.Subscriber(reactive_topic, AckermannDriveStamped, self.reactive_callback, queue_size=1)
-        self.pure_pursuit_start_index_sub = rospy.Subscriber('/start_pose_index', Int32, self.pure_pursuit_start_index_callback, queue_size=1)
-        # self.pp_l_sub = rospy.Subscriber('/lookahead_dist', Float32, self.pure_pursuit_L_callback, queue_size=1)
 
         self.scans_pub = rospy.Publisher("/cartesian_scans", Marker, queue_size = 1)
         self.obstacle_marker_pub = rospy.Publisher("/obstacle", Marker, queue_size = 1000)
@@ -118,6 +113,11 @@ class Vehicle:
         self.path_sub = rospy.Subscriber(path_topic, Path, self.path_callback, queue_size=1)
         self.lidar_sub = rospy.Subscriber(lidarscan_topic, LaserScan, self.lidar_callback, queue_size=1)
         self.odom_sub = rospy.Subscriber(odom_topic, Odometry, self.odom_callback, queue_size=1)
+        self.pure_pursuit_drive = rospy.Subscriber(pure_pursuit_topic, AckermannDriveStamped, self.pure_pursuit_callback, queue_size=1)
+        self.reactive_drive = rospy.Subscriber(reactive_topic, AckermannDriveStamped, self.reactive_callback, queue_size=1)
+        self.pure_pursuit_start_index_sub = rospy.Subscriber('/start_pose_index', Int32, self.pure_pursuit_start_index_callback, queue_size=1)
+        self.obstacles_pub = rospy.Subscriber('/costmap_node/costmap/costmap', OccupancyGrid, self.costmap_callback, queue_size=1)
+        # self.pp_l_sub = rospy.Subscriber('/lookahead_dist', Float32, self.pure_pursuit_L_callback, queue_size=1)
         # self.map_sub = rospy.Subscriber("/map", OccupancyGrid, self.map_callback, queue_size=1)
 
         self.tf_buffer = tf2_ros.Buffer(rospy.Duration(1.0))  # tf buffer length
@@ -209,8 +209,12 @@ class Vehicle:
         # with open(f"{rospack.get_path('vehicle')}/map.bin", "wb") as f:
         #     rospy.loginfo_throttle(1, "MAP: " + str(buff.getbuffer()))
         #     f.write(buff.getbuffer())
+    
+    def costmap_callback(self, data):
+        pass
 
     def obstacles_update_callback(self, data):
+        rospy.loginfo("MAP UPDATE")
         if self.map is None:
             # wait for initial obstacles map
             self.map = rospy.wait_for_message('/costmap_node/costmap/costmap', OccupancyGrid)
@@ -224,6 +228,7 @@ class Vehicle:
         self.map.data = self.map_matrix.flatten().tolist()
 
     def odom_callback(self, data):
+        
         self.velocity = data.twist.twist.linear.x
         self.yaw = get_rotation(data.pose.pose.orientation)
         self.pose = data.pose
@@ -237,14 +242,16 @@ class Vehicle:
             return
         
         if not self.obstacle_detected:
+            rospy.loginfo("PURE PURSUIT")
             goal_in_map = self.convert_position_to_grid_cell(self.goal[1], self.goal[0])
             goal = self.convert_grid_cell_to_position(goal_in_map[1], goal_in_map[0])
             self.visualize_obstacle(goal[0], goal[1])
             # rospy.loginfo("OCCUPANCY VALUE FOR L: " + str(self.map_matrix[goal_in_map[0], goal_in_map[1]]))
-            if self.map_matrix[goal_in_map[0], goal_in_map[1]] >= 65:
+            if self.map_matrix[goal_in_map[0], goal_in_map[1]] >= 10:
                 # occupied!
                 self.obstacle_detected = True
-        # else:
+        else:
+            rospy.loginfo("FOLLOW THE GAP")
         #     theta = np.arange(self.steering_angle - math.radians(100), self.steering_angle + math.radians(100), math.radians(5), dtype=np.float32)
         #     r = np.empty(theta.shape)
         #     L = 1.5 * self.velocity if self.velocity > sys.float_info.min else self.L
@@ -282,7 +289,7 @@ class Vehicle:
             angle = np.clip(self.yaw, -0.4189, 0.4189)
             self.ttc = np.amin(self.ttc_array[self.myScanIndex(data, math.degrees(angle) - 45):self.myScanIndex(data, math.degrees(angle) + 45)])
             # self.ttc = np.amin(self.ttc_array[self.myScanIndex(data, -45):self.myScanIndex(data, 45)])
-            rospy.loginfo("ttc: " + str(self.ttc))
+            # rospy.loginfo("ttc: " + str(self.ttc))
             
             # still_obstacle = False
             # goal_in_map = self.convert_position_to_grid_cell(self.goal[1], self.goal[0])

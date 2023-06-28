@@ -1,11 +1,12 @@
 <?xml version="1.0"?>
 <launch>
-  <node name="map_server" pkg="map_server" type="map_server" args="$(find pure_pursuit)/maps/Jun27_02.yaml">
+  <node name="map_server" pkg="map_server" type="map_server" args="$(find pure_pursuit)/maps/Jun28_01.yaml">
     <param name="frame_id" value="map"/>
   </node>
   <!-- <remap from="odom" to="/odometry/filtered_local"/> -->
+  <node name="odom_broadcaster" pkg="reactive" type="odom_broadcaster.py" output = "screen"/>
   <remap from="odom" to="/vesc/odom"/>
-  <remap from="pure_pursuit_nav" to="/vesc/high_level/ackermann_cmd_mux/input/nav_0" />
+  <!-- <remap from="pure_pursuit_nav" to="/vesc/high_level/ackermann_cmd_mux/input/nav_0"/> -->
   <node name="planner" pkg="pure_pursuit" type="planner.py" output = "screen"/>
   <!-- <include file="$(find razor_imu_9dof)/launch/razor-pub.launch"/>
   <include file="$(find reactive)/launch/ukf_odom.launch"/> -->

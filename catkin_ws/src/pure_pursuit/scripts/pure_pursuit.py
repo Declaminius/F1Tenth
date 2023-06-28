@@ -45,7 +45,7 @@ class PurePursuit:
         path_flying_lap_topic = '/path_flying_lap'
 
         # Tuneable parameters
-        self.max_speed = 3
+        self.max_speed = 2.5
         self.max_decel = 8.26
         self.max_steering_angle = 0.4189
         self.wheelbase = 0.3302
@@ -84,11 +84,12 @@ class PurePursuit:
         self.curvature_pub = rospy.Publisher('curvature', Float32, queue_size=1)
         self.curvature_brake_pub = rospy.Publisher('curvature_brake', Float32, queue_size=1)
         self.marker_pub = rospy.Publisher("/marker_goal", Marker, queue_size = 1000)
+        self.start_pose_index_pub = rospy.Publisher('/start_pose_index', Int32, queue_size=100)
 
         # ROS Subscribers
         self.path_sub = rospy.Subscriber(path_topic, Path, self.path_callback, queue_size=1)
         self.path_flying_lap_sub = rospy.Subscriber(path_flying_lap_topic, Path, self.path_flying_lap_callback, queue_size=1)
-        self.odom_sub = rospy.Subscriber(odom_topic, Odometry, self.odom_callback, queue_size=1)
+        self.odom_sub = rospy.Subscriber(odom_topic, Odometry, self.odom_callback, queue_size=1, tcp_nodelay = True)
         self.lidar_sub = rospy.Subscriber(lidarscan_topic, LaserScan, self.lidar_callback, queue_size=1)
 
 
@@ -233,6 +234,7 @@ class PurePursuit:
         
         marker = visualize_point(goal[0], goal[1])
         self.marker_pub.publish(marker)
+        self.start_pose_index_pub.publish(Int32(self.closest_waypoint_index))
     
     def path_callback(self, path_msg):
         self.path = path_msg
